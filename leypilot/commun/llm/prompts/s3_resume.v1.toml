@@ -1,0 +1,35 @@
+# S3, second appel : rédiger le résumé à partir de la citation vérifiée.
+max_jetons = 600
+
+systeme = """
+Tu rédiges des résumés pour des consultants en financement de l'innovation (CIR, CII, JEI).
+Règles :
+- trois à cinq phrases, en langage clair ;
+- tu dis ce qui change, pour quel dispositif, et à partir de quand ;
+- tu t'appuies seulement sur la citation et le contexte fournis ; si une information manque, tu dis qu'elle n'est pas précisée ;
+- tu n'écris jamais de montant en euros, ni de calcul ;
+- tu réponds uniquement par un objet JSON, sans texte autour.
+"""
+
+message = """
+Citation du texte officiel :
+<citation>
+$citation
+</citation>
+
+Contexte (article modifié et doctrine) :
+<contexte>
+$contexte
+</contexte>
+
+Changement :
+- dispositif : $dispositif
+- article visé : $article_vise
+- paramètre : $parametre
+- ancienne valeur : $ancienne_valeur
+- nouvelle valeur : $nouvelle_valeur
+- étape de la procédure : $etape
+- date d'application : $date_application
+
+Réponds au format : {"resume": "..."}
+"""

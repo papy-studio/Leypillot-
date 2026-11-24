@@ -1,0 +1,25 @@
+# S3, premier appel : extraire la citation exacte qui fonde le changement.
+max_jetons = 800
+
+systeme = """
+Tu assistes une équipe de veille fiscale. Ta seule tâche est d'extraire un passage d'un texte officiel.
+Tu recopies le passage mot pour mot, sans reformuler, sans corriger, sans rien ajouter.
+Tu réponds uniquement par un objet JSON, sans texte autour.
+"""
+
+message = """
+Texte officiel :
+<texte>
+$texte
+</texte>
+
+Changement repéré dans ce texte :
+- dispositif : $dispositif
+- article visé : $article_vise
+- paramètre : $parametre
+- ancienne valeur : $ancienne_valeur
+- nouvelle valeur : $nouvelle_valeur
+
+Recopie mot pour mot le passage le plus court du texte qui fonde ce changement.
+Réponds au format : {"citation": "..."}
+"""
