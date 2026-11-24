@@ -29,6 +29,10 @@ dev = ["pytest>=8", "ruff>=0.6"]
 [tool.setuptools.packages.find]
 include = ["leypilot*", "openfisca_leypilot*"]
 
+[tool.setuptools.package-data]
+"leypilot.commun.llm" = ["prompts/*.toml"]
+"leypilot.mesure" = ["sql/*.sql"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

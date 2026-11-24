@@ -7,8 +7,12 @@ class Reglages(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+psycopg://leypilot:leypilot@localhost:5432/leypilot"
-    mistral_api_key: str = ""
-    anthropic_api_key: str = ""
+
+    # Couche LLM (P2). Fournisseur vide = pas de LLM : le lot 2 utilise ses gabarits.
+    llm_fournisseur: str = ""
+    llm_modele: str = ""
+    llm_cle_api: str = ""
+
     jwt_secret: str = ""
     jwt_duree_minutes: int = 60
 

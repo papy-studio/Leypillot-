@@ -1,6 +1,6 @@
 # Leypilot
 
-Copilote de veille réglementaire pour les consultants. Leypilot surveille les textes officiels (Journal officiel, Parlement, BOFiP), repère les changements qui touchent le CIR, le CII et la JEI, chiffre leur effet pour chaque client et prévient le bon consultant au bon moment, avec une action à mener.
+Copilote de veille réglementaire pour les consultants. Leypilot surveille les textes officiels (Journal officiel, Parlement, BOFiP), repère les changements qui touchent le CIR, le CII et la JEI, chiffre leur effet pour chaque client et prévient le bon consultant au bon moment, avec une proposition d'action à mener.
 
 ## Ce que fait l'outil
 

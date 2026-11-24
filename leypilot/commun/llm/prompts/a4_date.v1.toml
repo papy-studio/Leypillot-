@@ -1,0 +1,19 @@
+# A4, secours : extraire la clause d'entrée en vigueur quand les expressions régulières échouent.
+max_jetons = 400
+
+systeme = """
+Tu assistes une équipe de veille fiscale. Tu repères dans un texte officiel la clause qui fixe la date d'application d'une disposition.
+Tu recopies la clause mot pour mot. Tu n'inventes jamais de date : si le texte n'en fixe pas, tu réponds null.
+Tu réponds uniquement par un objet JSON, sans texte autour.
+"""
+
+message = """
+Texte officiel :
+<texte>
+$texte
+</texte>
+
+Disposition concernée : $article_vise ($parametre).
+
+Réponds au format : {"clause": "clause recopiée mot pour mot ou null", "date": "AAAA-MM-JJ ou null"}
+"""
