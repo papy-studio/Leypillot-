@@ -1,48 +1,69 @@
 {
-  "description": "Fil rouge client B, lot 2 : textes FICTIFS. La baisse du taux du CII de 30 % à 20 % suit trois étapes : amendement déposé, texte adopté, loi publiée au JO.",
+  "description": "Fil rouge client B, lot 2 : textes FICTIFS. La baisse du taux du CII de 30 % à 20 % suit trois étapes : amendement déposé, texte adopté, loi publiée au JO. Format du contrat P1 → P2 : documents filtrés et changements détectés (leypilot/mesure/entree.py). L'article visé est déduit du texte quand la personne 1 ne le fournit pas.",
   "aujourd_hui": "2025-11-20",
+  "documents": [
+    {
+      "identifiant": 9001,
+      "source": "assemblee",
+      "type_texte": "amendement",
+      "date_document": "2025-10-28",
+      "texte": "AMENDEMENT N° I-1234 (fictif) présenté au projet de loi de finances pour 2026. ARTICLE ADDITIONNEL APRÈS L'ARTICLE 12, insérer l'article suivant : I. – Au premier alinéa du k du II de l'article 244 quater B du code général des impôts, le taux : « 30 % » est remplacé par le taux : « 20 % ». II. – Le I s'applique aux dépenses exposées à compter du 1er janvier 2026. EXPOSÉ SOMMAIRE : cet amendement réduit le taux du crédit d'impôt innovation, dont l'assiette reste plafonnée à 400 000 € de dépenses.",
+      "identifiants": {
+        "dossier_legislatif": "PLF2026",
+        "numero_amendement": "I-1234"
+      }
+    },
+    {
+      "identifiant": 9002,
+      "source": "assemblee",
+      "type_texte": "texte_adopte",
+      "date_document": "2025-12-18",
+      "texte": "PROJET DE LOI DE FINANCES POUR 2026, TEXTE ADOPTÉ (fictif). Article 27 : I. – Au premier alinéa du k du II de l'article 244 quater B du code général des impôts, le taux : « 30 % » est remplacé par le taux : « 20 % ». II. – Le I s'applique aux dépenses exposées à compter du 1er janvier 2026.",
+      "identifiants": {
+        "dossier_legislatif": "PLF2026"
+      }
+    },
+    {
+      "identifiant": 9003,
+      "source": "legifrance",
+      "type_texte": "loi",
+      "date_document": "2025-12-31",
+      "texte": "LOI n° 2025-0000 du 30 décembre 2025 de finances pour 2026 (fictive). Article 27 : I. – Au premier alinéa du k du II de l'article 244 quater B du code général des impôts, le taux : « 30 % » est remplacé par le taux : « 20 % ». II. – Le I s'applique aux dépenses exposées à compter du 1er janvier 2026.",
+      "identifiants": {
+        "dossier_legislatif": "PLF2026",
+        "nor": "ECOX0000000L",
+        "eli": "https://www.legifrance.gouv.fr/eli/loi/2025/12/30/ECOX0000000L/jo/article_27"
+      }
+    }
+  ],
   "changements": [
     {
       "identifiant": 101,
       "document_id": 9001,
-      "evenement": "depot",
-      "date_document": "2025-10-28",
       "dispositif": "CII",
-      "article_vise": "article 244 quater B du code général des impôts",
       "parametre": "taux du crédit d'impôt innovation",
       "ancienne_valeur": "30 %",
       "nouvelle_valeur": "20 %",
-      "passage_cite": "le taux : « 30 % » est remplacé par le taux : « 20 % »",
-      "texte_source": "AMENDEMENT N° I-1234 (fictif) présenté au projet de loi de finances pour 2026. ARTICLE ADDITIONNEL APRÈS L'ARTICLE 12, insérer l'article suivant : I. – Au premier alinéa du k du II de l'article 244 quater B du code général des impôts, le taux : « 30 % » est remplacé par le taux : « 20 % ». II. – Le I s'applique aux dépenses exposées à compter du 1er janvier 2026. EXPOSÉ SOMMAIRE : cet amendement réduit le taux du crédit d'impôt innovation, dont l'assiette reste plafonnée à 400 000 € de dépenses.",
-      "identifiants": {"dossier_legislatif": "PLF2026", "numero_amendement": "I-1234"}
+      "passage_cite": "le taux : « 30 % » est remplacé par le taux : « 20 % »"
     },
     {
       "identifiant": 102,
       "document_id": 9002,
-      "evenement": "adoption",
-      "date_document": "2025-12-18",
       "dispositif": "CII",
-      "article_vise": "CGI, art. 244 quater B, II, k",
       "parametre": "taux",
       "ancienne_valeur": "30 %",
       "nouvelle_valeur": "20 %",
       "passage_cite": "le taux : « 30 % » est remplacé par le taux : « 20 % »",
-      "texte_source": "PROJET DE LOI DE FINANCES POUR 2026, TEXTE ADOPTÉ (fictif). Article 27 : I. – Au premier alinéa du k du II de l'article 244 quater B du code général des impôts, le taux : « 30 % » est remplacé par le taux : « 20 % ». II. – Le I s'applique aux dépenses exposées à compter du 1er janvier 2026.",
-      "identifiants": {"dossier_legislatif": "PLF2026"}
+      "article_vise": "CGI, art. 244 quater B, II, k"
     },
     {
       "identifiant": 103,
       "document_id": 9003,
-      "evenement": "publication",
-      "date_document": "2025-12-31",
       "dispositif": "CII",
-      "article_vise": "article 244 quater B du CGI",
       "parametre": "taux du CII",
       "ancienne_valeur": "30 %",
       "nouvelle_valeur": "20 %",
-      "passage_cite": "le taux : « 30 % » est remplacé par le taux : « 20 % »",
-      "texte_source": "LOI n° 2025-0000 du 30 décembre 2025 de finances pour 2026 (fictive). Article 27 : I. – Au premier alinéa du k du II de l'article 244 quater B du code général des impôts, le taux : « 30 % » est remplacé par le taux : « 20 % ». II. – Le I s'applique aux dépenses exposées à compter du 1er janvier 2026.",
-      "identifiants": {"dossier_legislatif": "PLF2026", "nor": "ECOX0000000L", "eli": "https://www.legifrance.gouv.fr/eli/loi/2025/12/30/ECOX0000000L/jo/article_27"}
+      "passage_cite": "le taux : « 30 % » est remplacé par le taux : « 20 % »"
     }
   ]
 }

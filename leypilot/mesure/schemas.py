@@ -1,7 +1,8 @@
-"""Types du lot 2 et contrat d'entrée avec le lot 1.
+"""Types du lot 2.
 
-``Changement`` est le format qu'on reçoit de la personne 1 (S2). C'est un
-contrat provisoire : à valider avec elle, champ par champ.
+``Changement`` est le format de travail du lot 2 : un changement détecté par la
+personne 1, complété par son document (texte, étape, date, identifiants
+officiels). Il est construit par ``leypilot.mesure.entree.assembler``.
 """
 
 from __future__ import annotations
@@ -67,7 +68,7 @@ class IdentifiantsOfficiels(BaseModel):
 
 
 class Changement(BaseModel):
-    """Changement extrait par S2 (lot 1), entrée du lot 2."""
+    """Changement détecté par S2 (lot 1), complété par son document."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -84,6 +85,7 @@ class Changement(BaseModel):
     texte_source: str = Field(min_length=1)
     a_revoir: bool = False
     identifiants: IdentifiantsOfficiels = Field(default_factory=IdentifiantsOfficiels)
+    conditions: tuple[str, ...] = ()  # conditions d'application lues dans le texte
 
     def empreinte_texte(self) -> str:
         return hashlib.sha256(self.texte_source.encode("utf-8")).hexdigest()

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from leypilot.mesure.entree import ChangementDetecte, DocumentFiltre, assembler_tous
 from leypilot.mesure.schemas import Changement
 
 FICHIER_CLIENT_B = Path(__file__).parents[3] / "donnees_exemple" / "lot2_client_b.json"
@@ -43,4 +44,9 @@ def fabrique():
 @pytest.fixture
 def client_b() -> list[Changement]:
     donnees = json.loads(FICHIER_CLIENT_B.read_text(encoding="utf-8"))
-    return [Changement.model_validate(c) for c in donnees["changements"]]
+    changements, erreurs = assembler_tous(
+        [DocumentFiltre.model_validate(d) for d in donnees["documents"]],
+        [ChangementDetecte.model_validate(c) for c in donnees["changements"]],
+    )
+    assert not erreurs
+    return changements

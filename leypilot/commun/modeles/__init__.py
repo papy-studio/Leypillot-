@@ -9,6 +9,14 @@ from leypilot.commun.modeles.mesure import (
     RattachementAValider,
     ResumeMesure,
     TransitionMesure,
+    VersionMesure,
 )
 
-__all__ = ["AppelLLM", "Mesure", "RattachementAValider", "ResumeMesure", "TransitionMesure"]
+__all__ = [
+    "AppelLLM",
+    "Mesure",
+    "RattachementAValider",
+    "ResumeMesure",
+    "TransitionMesure",
+    "VersionMesure",
+]

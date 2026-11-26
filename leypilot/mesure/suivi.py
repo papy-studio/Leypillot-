@@ -1,10 +1,12 @@
 """Chaîne du lot 2 : un changement (S2) → mesure rattachée, qualifiée, datée et résumée.
 
-Appelé chaque nuit par la planification (P5) sur les nouveaux changements :
+Appelé chaque nuit par la planification (P5) sur ce que fournit la personne 1 :
 
+    changements, erreurs = assembler_tous(documents_filtres, changements_detectes)
     suivi = SuiviMesures(session)
     for changement in changements:
         suivi.traiter(changement)
+    suivi.relancer_resumes_en_attente()
     suivi.appliquer_entrees_en_vigueur(date.today())
     session.commit()
 
@@ -27,6 +29,7 @@ from leypilot.commun.modeles.mesure import (
     RattachementAValider,
     ResumeMesure,
     TransitionMesure,
+    VersionMesure,
 )
 from leypilot.mesure.dates import DateVigueur, dater
 from leypilot.mesure.etats import (
@@ -43,7 +46,7 @@ from leypilot.mesure.rattachement import (
     Methode,
     rattacher,
 )
-from leypilot.mesure.resume import ResumeurS3
+from leypilot.mesure.resume import ResumeProduit, ResumeurS3
 from leypilot.mesure.schemas import (
     Changement,
     Dispositif,
@@ -125,8 +128,11 @@ class SuiviMesures:
             if mesure is None:
                 raise RattachementIntrouvable(f"Mesure {decision.mesure_id} introuvable.")
             self._completer_identifiants(mesure, changement)
+            self._reprendre_valeurs(mesure, changement)
             self._appliquer_evenement(mesure, changement, resultat)
 
+        self._ajouter_version(mesure, changement, decision)
+        mesure.maj_le = maintenant()  # la personne 3 relit les mesures modifiées
         self.session.flush()
         resultat.mesure_id = mesure.id
         resultat.date_vigueur = self._dater(mesure, changement)
@@ -221,6 +227,9 @@ class SuiviMesures:
             dispositif=changement.dispositif,
             article_vise=changement.article_vise,
             parametre=changement.parametre,
+            ancienne_valeur=changement.ancienne_valeur,
+            nouvelle_valeur=changement.nouvelle_valeur,
+            conditions=list(changement.conditions),
             statut=statut,
             dossier_legislatif=ids.dossier_legislatif,
             numeros_amendement=[ids.numero_amendement] if ids.numero_amendement else [],
@@ -283,6 +292,39 @@ class SuiviMesures:
             mesure, de, vers, changement.evenement, changement.date_document, changement
         )
 
+    def _ajouter_version(
+        self, mesure: Mesure, changement: Changement, decision: DecisionRattachement
+    ) -> None:
+        """Lien changement → mesure (A2), avec la manière dont il a été établi."""
+        deja = self.session.scalar(
+            select(VersionMesure).where(VersionMesure.changement_id == changement.identifiant)
+        )
+        if deja is not None:
+            return
+        methode = "creation" if decision.nouvelle_mesure else str(decision.methode)
+        mesure.versions.append(
+            VersionMesure(
+                changement_id=changement.identifiant,
+                document_id=changement.document_id,
+                evenement=changement.evenement,
+                date_document=changement.date_document,
+                methode=methode,
+                score=None if decision.nouvelle_mesure else decision.score,
+                changement_json=changement.model_dump_json(),
+            )
+        )
+
+    def _reprendre_valeurs(self, mesure: Mesure, changement: Changement) -> None:
+        """Le dernier texte fait foi : le vote peut retenir une autre valeur que l'amendement."""
+        if changement.nouvelle_valeur is not None:
+            mesure.nouvelle_valeur = changement.nouvelle_valeur
+        if changement.ancienne_valeur is not None:
+            mesure.ancienne_valeur = changement.ancienne_valeur
+        conditions = list(mesure.conditions or [])
+        nouvelles = [c for c in changement.conditions if c not in conditions]
+        if nouvelles:
+            mesure.conditions = [*conditions, *nouvelles]
+
     def _completer_identifiants(self, mesure: Mesure, changement: Changement) -> None:
         ids = changement.identifiants
         mesure.dossier_legislatif = mesure.dossier_legislatif or ids.dossier_legislatif
@@ -312,6 +354,7 @@ class SuiviMesures:
                 mesure.date_entree_vigueur,
             )
             mesure.statut = StatutMesure.APPLIQUEE
+            mesure.maj_le = maintenant()
         self.session.flush()
         return [m.id for m in mesures]
 
@@ -347,7 +390,13 @@ class SuiviMesures:
                 existant.mesure_id = mesure.id
             return existant
 
-        produit = self.resumeur.resumer(changement, date_vigueur)
+        return self._enregistrer_resume(
+            mesure, changement, self.resumeur.resumer(changement, date_vigueur)
+        )
+
+    def _enregistrer_resume(
+        self, mesure: Mesure, changement: Changement, produit: ResumeProduit
+    ) -> ResumeMesure:
         resume = ResumeMesure(
             mesure_id=mesure.id,
             changement_id=changement.identifiant,
@@ -359,7 +408,52 @@ class SuiviMesures:
             citation=produit.citation,
             a_verifier=produit.a_verifier,
             motifs_verification=produit.motifs,
+            en_attente=produit.en_attente,
         )
         self.session.add(resume)
         self.session.flush()
         return resume
+
+    def relancer_resumes_en_attente(self) -> list[int]:
+        """Refait les résumés laissés en attente après un échec du LLM.
+
+        Un résumé réussi remplace le provisoire (qui reste en base, mais n'est plus
+        en attente). Un nouvel échec le laisse en attente pour la relance suivante.
+        Renvoie les identifiants des mesures dont le résumé a été refait.
+        """
+        en_attente = self.session.scalars(
+            select(ResumeMesure)
+            .where(ResumeMesure.en_attente.is_(True), ResumeMesure.mesure_id.is_not(None))
+            .order_by(ResumeMesure.id)
+        ).all()
+        refaites: list[int] = []
+        for provisoire in en_attente:
+            version = self.session.scalar(
+                select(VersionMesure).where(VersionMesure.changement_id == provisoire.changement_id)
+            )
+            mesure = self.session.get(Mesure, provisoire.mesure_id)
+            if version is None or mesure is None:
+                continue
+            changement = Changement.model_validate_json(version.changement_json)
+            date_vigueur = self._date_connue(mesure)
+            produit = self.resumeur.resumer(changement, date_vigueur)
+            if produit.en_attente:
+                continue
+            provisoire.en_attente = False
+            self._enregistrer_resume(mesure, changement, produit)
+            mesure.maj_le = maintenant()
+            refaites.append(mesure.id)
+        self.session.flush()
+        return refaites
+
+    @staticmethod
+    def _date_connue(mesure: Mesure) -> DateVigueur | None:
+        if mesure.date_entree_vigueur is None or mesure.nature_date is None:
+            return None
+        return DateVigueur(
+            mesure.date_entree_vigueur,
+            mesure.nature_date,
+            mesure.clause_entree_vigueur,
+            "connue",
+            "base",
+        )

@@ -115,16 +115,23 @@ def test_montant_de_la_citation_autorise(fabrique):
     assert "500 000 €" in produit.texte
 
 
-def test_llm_non_configure_bascule_sur_le_gabarit(fabrique):
+def test_sans_llm_le_gabarit_n_est_pas_en_attente(fabrique):
+    produit = creer_resumeur().resumer(fabrique(), DATE_CERTAINE)
+    assert (produit.methode, produit.en_attente) == ("gabarit", False)
+
+
+def test_llm_non_configure_donne_un_resume_provisoire_en_attente(fabrique):
     produit = creer_resumeur(ServiceLLM(ClientNonConfigure())).resumer(fabrique(), DATE_CERTAINE)
     assert produit.methode == "gabarit"
     assert produit.texte.startswith("CII :")
+    assert produit.en_attente
 
 
-def test_reponse_illisible_bascule_sur_le_gabarit(fabrique):
+def test_reponse_illisible_apres_les_tentatives_donne_un_resume_en_attente(fabrique):
     client = ClientFactice({"s3_citation": ["???", "???"]})
-    produit = creer_resumeur(ServiceLLM(client)).resumer(fabrique())
-    assert produit.methode == "gabarit"
+    produit = creer_resumeur(ServiceLLM(client, tentatives=2)).resumer(fabrique())
+    assert len(client.appels) == 2  # une nouvelle tentative, puis abandon
+    assert (produit.methode, produit.en_attente) == ("gabarit", True)
 
 
 # --- Drapeau « à vérifier » ------------------------------------------------------

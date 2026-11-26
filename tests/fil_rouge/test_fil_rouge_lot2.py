@@ -8,9 +8,15 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from leypilot.commun.modeles.mesure import Mesure
+from leypilot.mesure.entree import ChangementDetecte, DocumentFiltre, assembler_tous
 from leypilot.mesure.graduation import Niveau
-from leypilot.mesure.requetes import VueMesure, mesures_publiees_depuis, vue_mesure
-from leypilot.mesure.schemas import Changement, NatureDate, StatutMesure
+from leypilot.mesure.requetes import (
+    VueMesure,
+    mesures_modifiees_depuis,
+    mesures_publiees_depuis,
+    vue_mesure,
+)
+from leypilot.mesure.schemas import NatureDate, StatutMesure
 from leypilot.mesure.suivi import SuiviMesures
 
 DONNEES = json.loads(
@@ -29,8 +35,16 @@ def vue(session, mesure_id: int | None, aujourd_hui: date | None = None) -> VueM
 
 
 def test_fil_rouge_client_b(session):
-    depot, adoption, publication = (Changement.model_validate(c) for c in DONNEES["changements"])
+    # 0. Ce que fournit la personne 1 : documents filtrés et changements détectés.
+    changements, erreurs = assembler_tous(
+        [DocumentFiltre.model_validate(d) for d in DONNEES["documents"]],
+        [ChangementDetecte.model_validate(c) for c in DONNEES["changements"]],
+    )
+    assert not erreurs
+    depot, adoption, publication = changements
+    assert [c.evenement for c in changements] == ["depot", "adoption", "publication"]
     suivi = SuiviMesures(session)
+    debut = datetime(2000, 1, 1, tzinfo=UTC)
 
     # 1. L'amendement est déposé : une mesure naît, au niveau « information ».
     resultat = suivi.traiter(depot)
@@ -51,6 +65,16 @@ def test_fil_rouge_client_b(session):
     assert etat.resume is not None
     assert "€" not in etat.resume
 
+    # Ce que reçoit la personne 3 : dispositif, paramètre et valeurs, statut, date, résumé.
+    [transmise] = mesures_modifiees_depuis(session, debut, AUJOURD_HUI)
+    assert (transmise.dispositif, transmise.ancienne_valeur, transmise.nouvelle_valeur) == (
+        "CII",
+        "30 %",
+        "20 %",
+    )
+    assert transmise.resume == etat.resume
+    assert transmise.documents == (9001,)
+
     # 2. Le texte est adopté sous un autre numéro d'article : même mesure, qui devient actionnable.
     resultat = suivi.traiter(adoption)
     assert (resultat.mesure_id, resultat.nouvelle_mesure) == (mesure_id, False)
@@ -59,7 +83,7 @@ def test_fil_rouge_client_b(session):
     # 3. La loi est publiée au JO : la personne 3 est prévenue (déclencheur de M3).
     resultat = suivi.traiter(publication)
     assert resultat.mesure_id == mesure_id
-    publiees = mesures_publiees_depuis(session, datetime(2000, 1, 1, tzinfo=UTC))
+    publiees = mesures_publiees_depuis(session, debut)
     assert [m.id for m in publiees] == [mesure_id]
 
     # 4. Le 1er janvier 2026, la mesure s'applique.
@@ -76,3 +100,5 @@ def test_fil_rouge_client_b(session):
     assert mesure.numeros_amendement == ["I-1234"]
     assert mesure.nor == "ECOX0000000L"
     assert len(mesure.resumes) == 3
+    assert [v.document_id for v in mesure.versions] == [9001, 9002, 9003]
+    assert [v.methode for v in mesure.versions] == ["creation", "similarite", "similarite"]

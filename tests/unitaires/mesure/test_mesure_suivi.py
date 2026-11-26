@@ -2,8 +2,15 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from leypilot.commun.modeles.mesure import Mesure, ResumeMesure
-from leypilot.mesure.requetes import VueMesure, mesures_publiees_depuis, vue_mesure
+from leypilot.commun.llm import ClientFactice, ClientNonConfigure, ServiceLLM
+from leypilot.commun.modeles.mesure import Mesure, ResumeMesure, VersionMesure
+from leypilot.mesure.requetes import (
+    VueMesure,
+    mesures_modifiees_depuis,
+    mesures_publiees_depuis,
+    vue_mesure,
+)
+from leypilot.mesure.resume import creer_resumeur
 from leypilot.mesure.schemas import NatureDate, StatutMesure
 from leypilot.mesure.suivi import RattachementIntrouvable, SuiviMesures
 
@@ -160,3 +167,94 @@ def test_vues_pour_les_lots_3_et_4(session, fabrique):
     )
     assert [m.id for m in mesures_publiees_depuis(session, debut)] == [premier.mesure_id]
     assert vue(session, premier.mesure_id).niveau == "action"
+
+
+# --- Contrat de sortie vers la personne 3 ------------------------------------------
+
+
+def test_la_mesure_porte_les_valeurs_et_les_conditions(session, fabrique):
+    suivi = SuiviMesures(session)
+    ids = {"dossier_legislatif": "PLF2026"}
+    premier = suivi.traiter(fabrique(identifiant=1, identifiants=ids, conditions=("PME",)))
+    # Le texte voté retient 25 % au lieu des 20 % de l'amendement, avec une condition de plus.
+    suivi.traiter(
+        fabrique(
+            identifiant=2,
+            evenement="adoption",
+            nouvelle_valeur="25 %",
+            identifiants=ids,
+            conditions=("PME", "dépenses exposées en France"),
+        )
+    )
+    etat = vue(session, premier.mesure_id)
+    assert (etat.ancienne_valeur, etat.nouvelle_valeur) == ("30 %", "25 %")
+    assert etat.conditions == ("PME", "dépenses exposées en France")
+
+
+def test_chaque_changement_laisse_une_version_reliee_a_son_document(session, fabrique):
+    suivi = SuiviMesures(session)
+    ids = {"dossier_legislatif": "PLF2026"}
+    premier = suivi.traiter(fabrique(identifiant=1, document_id=10, identifiants=ids))
+    suivi.traiter(fabrique(identifiant=2, document_id=20, evenement="adoption", identifiants=ids))
+    suivi.traiter(fabrique(identifiant=2, document_id=20, evenement="adoption", identifiants=ids))
+
+    versions = session.query(VersionMesure).order_by(VersionMesure.id).all()
+    assert [(v.changement_id, v.document_id, v.methode) for v in versions] == [
+        (1, 10, "creation"),
+        (2, 20, "similarite"),
+    ]
+    assert vue(session, premier.mesure_id).documents == (10, 20)
+
+
+def test_rattachement_confirme_par_un_humain_est_trace(session, fabrique):
+    suivi = SuiviMesures(session, seuil_auto=99, seuil_humain=50)
+    suivi.traiter(fabrique(identifiant=1, parametre="taux du crédit d'impôt innovation"))
+    ambigu = suivi.traiter(
+        fabrique(identifiant=2, evenement="adoption", parametre="taux majoré outre-mer")
+    )
+    assert ambigu.en_attente_id is not None
+    suivi.confirmer_rattachement(ambigu.en_attente_id)
+    version = session.query(VersionMesure).filter_by(changement_id=2).one()
+    assert version.methode == "humain"
+
+
+def test_mesures_modifiees_depuis_le_dernier_passage(session, fabrique):
+    suivi = SuiviMesures(session)
+    debut = datetime(2000, 1, 1, tzinfo=UTC)
+    premier = suivi.traiter(fabrique(identifiant=1))
+    session.flush()
+    assert [m.id for m in mesures_modifiees_depuis(session, debut)] == [premier.mesure_id]
+    futur = datetime(2999, 1, 1, tzinfo=UTC)
+    assert mesures_modifiees_depuis(session, futur) == []
+
+
+# --- Résumé en attente, relancé plus tard ------------------------------------------
+
+
+def test_resume_en_attente_puis_relance(session, fabrique):
+    en_panne = SuiviMesures(session, resumeur=creer_resumeur(ServiceLLM(ClientNonConfigure())))
+    resultat = en_panne.traiter(fabrique(identifiant=1))
+    etat = vue(session, resultat.mesure_id)
+    assert etat.resume_en_attente
+    assert (etat.resume or "").startswith("CII :")  # texte provisoire du gabarit
+
+    # Toujours en panne : rien ne change.
+    assert en_panne.relancer_resumes_en_attente() == []
+
+    # Le LLM répond de nouveau.
+    client = ClientFactice(
+        {
+            "s3_citation": [
+                '{"citation": "le taux : « 30 % » est remplacé par le taux : « 20 % »"}'
+            ],
+            "s3_resume": ['{"resume": "Le taux du CII baisse de 30 % à 20 %."}'],
+        }
+    )
+    retabli = SuiviMesures(session, resumeur=creer_resumeur(ServiceLLM(client)))
+    assert retabli.relancer_resumes_en_attente() == [resultat.mesure_id]
+
+    etat = vue(session, resultat.mesure_id)
+    assert not etat.resume_en_attente
+    assert etat.resume == "Le taux du CII baisse de 30 % à 20 %."
+    assert session.query(ResumeMesure).filter_by(en_attente=True).count() == 0
+    assert retabli.relancer_resumes_en_attente() == []

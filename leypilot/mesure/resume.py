@@ -6,7 +6,9 @@ anti-montant → drapeau « à vérifier ».
 Deux rédacteurs partagent la même interface :
 - ``RedacteurGabarit`` : déterministe, sans LLM (utilisé par défaut) ;
 - ``RedacteurLLM`` : deux appels au LLM (citation, puis résumé).
-Si le LLM échoue ou n'est pas configuré, la chaîne bascule sur le gabarit.
+Sans LLM configuré, le gabarit est le rédacteur. Si le LLM échoue après ses
+nouvelles tentatives, le gabarit fournit un texte provisoire et le résumé est
+marqué « en attente » : il sera relancé plus tard (répartition, couche LLM).
 """
 
 from __future__ import annotations
@@ -156,6 +158,7 @@ class ResumeProduit:
     methode: str
     version: str
     motifs: list[str] = field(default_factory=list)
+    en_attente: bool = False  # LLM en échec : texte provisoire du gabarit, à relancer
 
     @property
     def a_verifier(self) -> bool:
@@ -186,8 +189,10 @@ class ResumeurS3:
         try:
             return self._produire(self.redacteur, changement, contexte, date_vigueur, motifs)
         except ErreurLLM as erreur:
-            journal.info("S3 : LLM indisponible (%s), résumé par gabarit.", erreur)
-            return self._produire(self.secours, changement, contexte, date_vigueur, motifs)
+            journal.warning("S3 : LLM en échec (%s), résumé provisoire en attente.", erreur)
+            provisoire = self._produire(self.secours, changement, contexte, date_vigueur, motifs)
+            provisoire.en_attente = True
+            return provisoire
 
     def _produire(
         self,

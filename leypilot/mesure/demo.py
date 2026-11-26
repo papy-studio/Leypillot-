@@ -4,7 +4,7 @@ python -m leypilot.mesure.demo
 """
 
 import json
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -15,10 +15,11 @@ from leypilot.commun.base import Base
 from leypilot.commun.llm import ClientFactice, ServiceLLM
 from leypilot.commun.modeles.mesure import Mesure
 from leypilot.mesure.dates import dater
+from leypilot.mesure.entree import ChangementDetecte, DocumentFiltre, assembler_tous
 from leypilot.mesure.graduation import ActionInterdite, verifier_action_autorisee
-from leypilot.mesure.requetes import vue_mesure
+from leypilot.mesure.requetes import mesures_modifiees_depuis, vue_mesure
 from leypilot.mesure.resume import creer_resumeur
-from leypilot.mesure.schemas import Changement, StatutMesure
+from leypilot.mesure.schemas import StatutMesure
 from leypilot.mesure.suivi import SuiviMesures
 
 FICHIER = Path(__file__).parents[2] / "donnees_exemple" / "lot2_client_b.json"
@@ -46,7 +47,13 @@ def afficher(session: Session, mesure_id: int, aujourd_hui: date) -> None:
 def main() -> None:
     donnees = json.loads(FICHIER.read_text(encoding="utf-8"))
     aujourd_hui = date.fromisoformat(donnees["aujourd_hui"])
-    changements = [Changement.model_validate(c) for c in donnees["changements"]]
+    # Ce que fournit la personne 1 : documents filtrés et changements détectés.
+    changements, erreurs = assembler_tous(
+        [DocumentFiltre.model_validate(d) for d in donnees["documents"]],
+        [ChangementDetecte.model_validate(c) for c in donnees["changements"]],
+    )
+    for erreur in erreurs:
+        print(f"  Écarté : {erreur}")
 
     moteur = create_engine("sqlite://")
     Base.metadata.create_all(moteur)
@@ -67,6 +74,14 @@ def main() -> None:
             else:
                 print("  Rattaché à la mesure existante")
             afficher(session, mesure_id, aujourd_hui)
+
+        titre("Ce que reçoit la personne 3")
+        for vue in mesures_modifiees_depuis(session, datetime(2000, 1, 1, tzinfo=UTC), aujourd_hui):
+            print(f"  Mesure n° {vue.id} · {vue.dispositif} · {vue.parametre}")
+            print(f"  Valeurs : {vue.ancienne_valeur} → {vue.nouvelle_valeur}")
+            print(f"  Conditions : {', '.join(vue.conditions) or 'aucune'}")
+            print(f"  Statut {vue.statut}, applicable le {vue.date_entree_vigueur}")
+            print(f"  Documents : {', '.join(map(str, vue.documents))}")
 
         titre("A5 : peut-on créer une action ?")
         for statut in (StatutMesure.PROPOSEE, StatutMesure.VOTEE):

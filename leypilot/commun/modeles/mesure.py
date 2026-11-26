@@ -1,5 +1,5 @@
-"""Tables du lot 2 (propriétaire : P2) : mesure, transition_mesure, resume,
-rattachement_a_valider. Les autres lots les lisent sans les modifier."""
+"""Tables du lot 2 (propriétaire : P2) : mesure, version_mesure, transition_mesure,
+resume, rattachement_a_valider. Les autres lots les lisent sans les modifier."""
 
 from __future__ import annotations
 
@@ -43,6 +43,11 @@ class Mesure(Base):
     dispositif: Mapped[Dispositif] = mapped_column(_enum(Dispositif, "dispositif"), index=True)
     article_vise: Mapped[str] = mapped_column(String(300))
     parametre: Mapped[str] = mapped_column(String(300))
+    # Repris du dernier changement : le texte voté peut retenir une autre valeur
+    # que l'amendement déposé. La personne 3 en tire la réforme à simuler.
+    ancienne_valeur: Mapped[str | None] = mapped_column(String(200))
+    nouvelle_valeur: Mapped[str | None] = mapped_column(String(200))
+    conditions: Mapped[list[str]] = mapped_column(JSON, default=list)
     statut: Mapped[StatutMesure] = mapped_column(_enum(StatutMesure, "statut_mesure"), index=True)
 
     dossier_legislatif: Mapped[str | None] = mapped_column(String(200))
@@ -69,6 +74,31 @@ class Mesure(Base):
     resumes: Mapped[list[ResumeMesure]] = relationship(
         back_populates="mesure", order_by="ResumeMesure.id"
     )
+    versions: Mapped[list[VersionMesure]] = relationship(
+        back_populates="mesure", order_by="VersionMesure.id", cascade="all, delete-orphan"
+    )
+
+
+class VersionMesure(Base):
+    """Un changement rattaché à une mesure (A2) : amendement, texte voté, loi publiée.
+
+    Donne le lien de la mesure vers ses documents et garde une copie du changement,
+    pour relancer un résumé en attente sans relire les tables du lot 1."""
+
+    __tablename__ = "version_mesure"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mesure_id: Mapped[int] = mapped_column(ForeignKey("mesure.id"), index=True)
+    changement_id: Mapped[int] = mapped_column(unique=True)
+    document_id: Mapped[int] = mapped_column(index=True)
+    evenement: Mapped[Evenement] = mapped_column(_enum(Evenement, "evenement"))
+    date_document: Mapped[date] = mapped_column(Date)
+    methode: Mapped[str] = mapped_column(String(20))  # creation, amendement, similarite, humain
+    score: Mapped[float | None] = mapped_column(Float)
+    changement_json: Mapped[str] = mapped_column(Text)
+    rattache_le: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=maintenant)
+
+    mesure: Mapped[Mesure] = relationship(back_populates="versions")
 
 
 class TransitionMesure(Base):
@@ -111,6 +141,9 @@ class ResumeMesure(Base):
     citation: Mapped[str] = mapped_column(Text)
     a_verifier: Mapped[bool] = mapped_column(Boolean, default=False)
     motifs_verification: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Vrai si le LLM a échoué après ses nouvelles tentatives : le texte vient du
+    # gabarit, et le résumé sera relancé par ``SuiviMesures.relancer_resumes_en_attente``.
+    en_attente: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     cree_le: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=maintenant)
 
     mesure: Mapped[Mesure | None] = relationship(back_populates="resumes")
