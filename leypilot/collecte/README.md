@@ -15,8 +15,10 @@ for collecte in ConnecteurJORF(dossier_brut).recuperer(date.today() - timedelta(
     enregistrer_collecte(session, collecte)  # documents, changements, contrôle
 session.commit()  # le lot 1 ne fait jamais de commit
 
-for document_filtre, changement_detecte in pour_lot2(session, dernier_id_traite):
+livraison = pour_lot2(session, dernier_id_traite)
+for document_filtre, changement_detecte in livraison.paires:
     ...  # format de leypilot.mesure.entree (lot 2)
+livraison.retenus  # (changement_id, raison) : rien n'est écarté en silence
 ```
 
 Essais à la main, sans base :
@@ -65,7 +67,10 @@ Tables (propriétaire P1, dans `leypilot/commun/modeles/collecte.py`) : `executi
 - `texte_source` = `document.texte`, déjà normalisé : son SHA-256 est `document.empreinte_texte` ;
 - les clauses d'application (« … s'applique aux dépenses exposées à compter du … ») partent dans `conditions`, telles quelles ;
 - l'étape vient du type de texte (amendement : dépôt, texte adopté : adoption, loi : publication) ou du sort de l'amendement (adopté : `adoption` ; rejeté, tombé, retiré, non soutenu, irrecevable : `rejet`) ;
-- quand seul l'état d'un document change, ses changements repartent rattachés à la nouvelle version : c'est ainsi que le lot 2 apprend l'adoption.
+- quand seul l'état d'un document change, ses changements repartent rattachés à la nouvelle version : c'est ainsi que le lot 2 apprend l'adoption ;
+- les amendements de l'Assemblée et du Sénat sont relus en entier à chaque passage, sans filtre de date : un amendement déposé en octobre et adopté hier est bien revu ; ceux qui n'ont pas changé sont écartés par leur empreinte ;
+- un amendement adopté ou rejeté est daté de son sort (date du vote), pas de son dépôt ; la date de dépôt reste dans `meta` ;
+- ce qui ne part pas vers le lot 2 est listé avec sa raison (`livraison.retenus`), et un document sans date déclenche un écart dans `execution_collecte`.
 
 **Reçoit de P5** le planificateur (6 h chaque jour, 19 h pendant le budget), la base, l'accès réseau aux sites officiels et le rangement du secret PISTE. Détail dans `docs/conception/lot1_besoins_plateforme.pdf`.
 

@@ -124,7 +124,9 @@ def fabriquer_archive_jorf(dossier: Path, *, oublier_decret: bool = False) -> Pa
     return chemin
 
 
-def amendement_an(numero: int, dispositif: str, sort: str | None = None) -> dict:
+def amendement_an(
+    numero: int, dispositif: str, sort: str | None = None, date_sort: str = "2024-10-25"
+) -> dict:
     return {
         "amendement": {
             "uid": f"AMANR5L17PO59048B0324P0D1N{numero:06d}",
@@ -140,6 +142,7 @@ def amendement_an(numero: int, dispositif: str, sort: str | None = None) -> dict
             "cycleDeVie": {
                 "dateDepot": "2024-10-17",
                 "sort": sort,
+                "dateSort": date_sort if sort else None,
                 "etatDesTraitements": "Discuté",
             },
             "pointeurFragmentTexte": {"division": {"articleDesignation": "Après l'article 13"}},
@@ -147,14 +150,14 @@ def amendement_an(numero: int, dispositif: str, sort: str | None = None) -> dict
     }
 
 
-def fabriquer_archive_an(dossier: Path) -> Path:
+def fabriquer_archive_an(dossier: Path, sort_2211: str | None = "Adopté") -> Path:
     """Trois amendements, dont le n° 2211 du fil rouge ; le n° 2210 manque."""
-    chemin = dossier / "Amendements.json.zip"
+    chemin = dossier / f"Amendements_{sort_2211}.json.zip"
     i_2211 = "".join(f"<p>{ligne}</p>" for ligne in lire_corpus("an_I-2211.txt").splitlines())
     with zipfile.ZipFile(chemin, "w") as archive:
         for numero, corps, sort in (
             (2209, "<p>Supprimer l'article 5.</p>", "Rejeté"),
-            (2211, i_2211, "Adopté"),
+            (2211, i_2211, sort_2211),
             (2212, "<p>Au début de l'article 3, ajouter un alinéa.</p>", None),
         ):
             archive.writestr(f"json/{numero}.json", json.dumps(amendement_an(numero, corps, sort)))

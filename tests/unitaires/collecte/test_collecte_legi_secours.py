@@ -105,7 +105,9 @@ def test_legi_en_desaccord_avec_le_jo(session, tmp_path, archive_jorf):
     assert changement.statut == Statut.A_REVOIR
     assert changement.motifs == [Motif.DESACCORD_LEGI]
     # Les changements LEGI ne partent pas vers le lot 2.
-    assert all(d["source"] != "LEGI" for d, _ in depot.pour_lot2(session))
+    livraison = depot.pour_lot2(session)
+    assert all(d["source"] != "legifrance" or d["type_texte"] == "loi" for d, _ in livraison.paires)
+    assert any("version_consolidee" in raison for _, raison in livraison.retenus)
 
 
 # ------------------------------------------------------------------ secours

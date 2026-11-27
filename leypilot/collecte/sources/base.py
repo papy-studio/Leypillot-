@@ -14,7 +14,8 @@ import httpx
 from leypilot.collecte.completude import Rapport
 from leypilot.collecte.textes import empreinte_etat, empreinte_texte
 
-AGENT = "Leypilot/0.1 (projet étudiant, École Centrale Casablanca)"
+# En-tête HTTP : ASCII seulement (httpx refuse les accents dans les en-têtes).
+AGENT = "Leypilot/0.1 (projet etudiant, Ecole Centrale Casablanca)"
 
 
 class Source(StrEnum):
@@ -114,6 +115,14 @@ def telecharger(client: httpx.Client, url: str, destination: Path) -> Path:
 # Proposition à valider avec la personne 2.
 _SORTS_ADOPTION = ("adopt",)
 _SORTS_REJET = ("rejet", "tomb", "retir", "non soutenu", "irrecevable", "non retenu")
+
+
+def date_de_l_etape(etape: str | None, depot: date | None, sort: date | None) -> date | None:
+    """Date que porte le document pour le lot 2 : celle du sort quand l'amendement a été
+    adopté ou rejeté (la transition « votée » est datée du vote), sinon celle du dépôt."""
+    if etape and sort:
+        return sort
+    return depot
 
 
 def etape_depuis_sort(sort: str | None) -> str | None:

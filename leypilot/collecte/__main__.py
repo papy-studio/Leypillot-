@@ -100,7 +100,7 @@ def main(arguments: list[str] | None = None) -> int:
         from leypilot.collecte.sources import assemblee
 
         if args.fichier:
-            return _afficher([assemblee.lire_archive(args.fichier, args.depuis)])
+            return _afficher([assemblee.lire_archive(args.fichier)])
         return _afficher(assemblee.ConnecteurAN(brut).recuperer(args.depuis))
     if args.commande == "senat":
         from leypilot.collecte.sources import senat

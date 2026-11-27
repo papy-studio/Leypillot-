@@ -5,6 +5,9 @@ Adresse : https://www.senat.fr/amendements/{session}/{texte}/jeu_complet_{sessio
 Particularités du fichier : encodage cp1252, séparateur tabulation, première ligne
 ``sep=``, noms de colonnes suivis d'espaces. Les numéros d'amendement d'une même partie
 (« I-12 », « II-3 ») se suivent : un trou signale un amendement manquant.
+
+Comme à l'Assemblée, le fichier est relu en entier à chaque passage, sans filtre de date :
+seul ce qui a changé (texte ou sort) passe l'empreinte et part vers le lot 2.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from leypilot.collecte.sources.base import (
     Source,
     TypeTexte,
     client_http,
+    date_de_l_etape,
     etape_depuis_sort,
     telecharger,
 )
@@ -75,6 +79,8 @@ def lire_fichier(chemin: Path, session: str, texte: str | int) -> Collecte:
         if not dans_perimetre(dispositif, objet):
             continue
         sort = ligne.get("Sort") or None
+        etape = etape_depuis_sort(sort)
+        depot = _date(ligne.get("Date de dépôt"))
         documents.append(
             DocumentBrut(
                 source=Source.SENAT,
@@ -82,7 +88,9 @@ def lire_fichier(chemin: Path, session: str, texte: str | int) -> Collecte:
                 nature="AMENDEMENT",
                 type_texte=TypeTexte.AMENDEMENT,
                 titre=f"Amendement n° {numero}",
-                date_document=_date(ligne.get("Date de dépôt")),
+                date_document=date_de_l_etape(
+                    etape, depot, _date(ligne.get("Date de saisie du sort"))
+                ),
                 url_officielle=ligne.get("Url amendement") or url_jeu_complet(session, texte),
                 texte=normaliser(f"{dispositif}\nObjet :\n{objet}" if objet else dispositif),
                 etat={"sort": sort, "date_sort": ligne.get("Date de saisie du sort")},
@@ -91,9 +99,10 @@ def lire_fichier(chemin: Path, session: str, texte: str | int) -> Collecte:
                     "texte": str(texte),
                     "article": ligne.get("Subdivision"),
                     "auteur": ligne.get("Auteur"),
+                    "date_depot": depot,
                 },
                 numero_amendement=numero,
-                etape=etape_depuis_sort(sort),
+                etape=etape,
                 chemin_brut=chemin.name,
             )
         )
@@ -123,6 +132,7 @@ class ConnecteurSenat:
         self.session, self.texte, self.commission = session, texte, commission
 
     def recuperer(self, depuis: date) -> Iterator[Collecte]:
+        """``depuis`` n'est pas utilisé : le fichier est relu en entier (voir plus haut)."""
         suffixe = "_commission" if self.commission else ""
         nom = f"jeu_complet_{self.session}_{self.texte}{suffixe}_{date.today():%Y%m%d}.csv"
         with client_http() as client:
@@ -131,8 +141,4 @@ class ConnecteurSenat:
                 url_jeu_complet(self.session, self.texte, self.commission),
                 self.dossier / nom,
             )
-        collecte = lire_fichier(chemin, self.session, self.texte)
-        collecte.documents = [
-            d for d in collecte.documents if not d.date_document or d.date_document >= depuis
-        ]
-        yield collecte
+        yield lire_fichier(chemin, self.session, self.texte)

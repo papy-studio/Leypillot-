@@ -3,6 +3,11 @@
 Adresse : https://data.assemblee-nationale.fr (législature 17, « amendements_div_legis »).
 Un fichier JSON par amendement. Les six derniers chiffres de l'UID sont le numéro
 d'ordre de dépôt : un trou dans ces numéros signale un amendement manquant.
+
+L'archive est une photo complète : elle est relue en entier à chaque passage, sans filtre
+de date. Un amendement déposé en octobre et adopté hier doit être revu, sinon le lot 2
+n'apprend jamais l'adoption. Les amendements inchangés sont écartés plus loin par leur
+empreinte (``depot.enregistrer_collecte``).
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from leypilot.collecte.sources.base import (
     Source,
     TypeTexte,
     client_http,
+    date_de_l_etape,
     etape_depuis_sort,
     telecharger,
 )
@@ -55,6 +61,8 @@ def document_amendement(donnees: dict[str, Any]) -> DocumentBrut:
     dispositif = texte_brut(corps.get("dispositif"))
     expose = texte_brut(corps.get("exposeSommaire"))
     uid = amendement.get("uid", "")
+    etape = etape_depuis_sort(sort)
+    depot = _date(vie.get("dateDepot"))
     numero = ident.get("numeroLong") or ident.get("numeroOrdreDepot")
     return DocumentBrut(
         source=Source.AN,
@@ -62,7 +70,7 @@ def document_amendement(donnees: dict[str, Any]) -> DocumentBrut:
         nature="AMENDEMENT",
         type_texte=TypeTexte.AMENDEMENT,
         titre=f"Amendement n° {numero}" if numero else None,
-        date_document=_date(vie.get("dateDepot")),
+        date_document=date_de_l_etape(etape, depot, _date(vie.get("dateSort"))),
         url_officielle=URL_AMENDEMENT.format(uid),
         texte=normaliser(f"{dispositif}\nExposé sommaire :\n{expose}" if expose else dispositif),
         etat={
@@ -75,13 +83,14 @@ def document_amendement(donnees: dict[str, Any]) -> DocumentBrut:
             "organe": ident.get("prefixeOrganeExamen"),
             "numero_ordre": ident.get("numeroOrdreDepot"),
             "article": division.get("articleDesignation"),
+            "date_depot": depot,
         },
         numero_amendement=str(numero) if numero else None,
-        etape=etape_depuis_sort(sort),
+        etape=etape,
     )
 
 
-def lire_archive(chemin: Path, depuis: date | None = None) -> Collecte:
+def lire_archive(chemin: Path) -> Collecte:
     documents, numeros = [], defaultdict(list)
     lus = 0
     with zipfile.ZipFile(chemin) as archive:
@@ -94,8 +103,6 @@ def lire_archive(chemin: Path, depuis: date | None = None) -> Collecte:
             texte_ref = document.meta.get("texte_legislatif")
             if texte_ref and ordre.isdigit():
                 numeros[(texte_ref, document.meta.get("organe"))].append(int(ordre))
-            if depuis and document.date_document and document.date_document < depuis:
-                continue
             if dans_perimetre(document.texte):
                 document.chemin_brut = f"{chemin.name}#{nom}"
                 documents.append(document)
@@ -126,8 +133,9 @@ class ConnecteurAN:
         self.url = url
 
     def recuperer(self, depuis: date) -> Iterator[Collecte]:
+        """``depuis`` n'est pas utilisé : l'archive est relue en entier (voir plus haut)."""
         with client_http(timeout=600) as client:
             chemin = telecharger(
                 client, self.url, self.dossier / f"Amendements_{date.today():%Y%m%d}.json.zip"
             )
-        yield lire_archive(chemin, depuis)
+        yield lire_archive(chemin)

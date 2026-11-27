@@ -61,9 +61,28 @@ def parametre(changement: Changement) -> str:
     return objet or changement.operation.value
 
 
+def motif_document_retenu(document: DocumentBrut) -> str | None:
+    """Pourquoi un document ne part pas vers le lot 2 (``None`` s'il part)."""
+    if document.type_texte.value not in TYPES_LOT2:
+        return f"type « {document.type_texte.value} » non prévu par le lot 2 (contrôle interne)"
+    if document.date_document is None:
+        return "document sans date : le lot 2 ne peut pas dater l'étape"
+    return None
+
+
+def motif_changement_retenu(changement: Changement) -> str | None:
+    """Pourquoi un changement ne part pas vers le lot 2 (``None`` s'il part)."""
+    if changement.dispositif not in {"CIR", "CII", "JEI"}:
+        return "aucun dispositif touché (hors cible)"
+    if changement.operation == Operation.NON_RECONNUE and changement.methode != Methode.LLM:
+        return "ligne non reconnue, en attente d'une lecture humaine"
+    return None
+
+
 def document_filtre(document_id: int, document: DocumentBrut) -> dict[str, Any] | None:
-    """Format ``DocumentFiltre`` du lot 2 ; ``None`` si le lot 2 ne traite pas ce type."""
-    if document.type_texte.value not in TYPES_LOT2 or document.date_document is None:
+    """Format ``DocumentFiltre`` du lot 2 ; ``None`` si le document ne part pas
+    (raison : ``motif_document_retenu``)."""
+    if motif_document_retenu(document):
         return None
     identifiants = {
         "dossier_legislatif": document.dossier_legislatif,
@@ -83,11 +102,9 @@ def document_filtre(document_id: int, document: DocumentBrut) -> dict[str, Any] 
 
 
 def changement_detecte(changement_id: int, changement: Changement) -> dict[str, Any] | None:
-    """Format ``ChangementDetecte`` du lot 2 ; ``None`` si aucun dispositif n'est touché, ou
-    si la ligne n'a pas pu être lue (elle attend d'abord un humain dans la file « à revoir »)."""
-    if changement.dispositif not in {"CIR", "CII", "JEI"}:
-        return None
-    if changement.operation == Operation.NON_RECONNUE and changement.methode != Methode.LLM:
+    """Format ``ChangementDetecte`` du lot 2 ; ``None`` si le changement ne part pas
+    (raison : ``motif_changement_retenu``)."""
+    if motif_changement_retenu(changement):
         return None
     return {
         "identifiant": changement_id,

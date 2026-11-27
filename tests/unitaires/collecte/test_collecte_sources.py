@@ -4,7 +4,7 @@ import io
 import tarfile
 from datetime import date
 
-from aide_collecte import DECRET, LOI, fabriquer_archive_jorf
+from aide_collecte import DECRET, LOI, fabriquer_archive_an, fabriquer_archive_jorf
 
 from leypilot.collecte.completude import controler_numeros, controler_sommaire, trous
 from leypilot.collecte.sources import assemblee, bofip, jorf, senat
@@ -67,8 +67,20 @@ def test_assemblee(archive_an):
     (i_2211,) = collecte.documents
     assert i_2211.numero_amendement == "I-2211"
     assert i_2211.etape == "adoption"
+    # Daté du vote, pas du dépôt : la transition « votée » du lot 2 porte la bonne date.
+    assert i_2211.date_document == date(2024, 10, 25)
+    assert i_2211.meta["date_depot"] == date(2024, 10, 17)
     assert i_2211.texte.startswith("APRÈS L'ARTICLE 13")
     assert collecte.controle.ecarts == ["PRJLANR5L17B0324 [AN] : amendement manquant : 2210"]
+
+
+def test_le_connecteur_an_ne_filtre_pas_par_date(tmp_path, monkeypatch):
+    """Revue de Papy : un amendement déposé en octobre et adopté la veille de la tâche de
+    nuit doit être revu, sinon le lot 2 n'apprend jamais l'adoption."""
+    archive = fabriquer_archive_an(tmp_path)
+    monkeypatch.setattr(assemblee, "telecharger", lambda *_: archive)
+    (collecte,) = assemblee.ConnecteurAN(tmp_path).recuperer(date(2026, 11, 26))
+    assert [d.etape for d in collecte.documents] == ["adoption"]
 
 
 def test_sort_vers_etape():
@@ -82,13 +94,17 @@ def test_sort_vers_etape():
 
 
 def test_senat_fichier_cp1252(tmp_path):
-    entete = "Numéro \tSubdivision \tDate de dépôt \tSort \tDispositif \tObjet \tUrl amendement "
+    entete = (
+        "Numéro \tSubdivision \tDate de dépôt \tSort \tDate de saisie du sort \tDispositif "
+        "\tObjet \tUrl amendement "
+    )
     lignes = [
         "sep=\t",
         entete,
-        "I-1179\tArticle 13\t2024-11-20\tRejeté\tLe crédit d'impôt recherche est modifié.\tx\t",
-        "I-1180\tArticle 14\t2024-11-20\tAdopté\tSans rapport.\ty\t",
-        "I-1182\tArticle 15\t2024-11-21\t\tSans rapport.\tz\t",
+        "I-1179\tArticle 13\t2024-11-20\tRejeté\t2024-11-23\tLe crédit d'impôt recherche "
+        "est modifié.\tx\t",
+        "I-1180\tArticle 14\t2024-11-20\tAdopté\t2024-11-23\tSans rapport.\ty\t",
+        "I-1182\tArticle 15\t2024-11-21\t\t\tSans rapport.\tz\t",
     ]
     chemin = tmp_path / "jeu_complet_2024-2025_143.csv"
     chemin.write_bytes("\r\n".join(lignes).encode("cp1252"))
@@ -97,7 +113,7 @@ def test_senat_fichier_cp1252(tmp_path):
     assert (doc.identifiant, doc.etape, doc.date_document) == (
         "2024-2025/143/I-1179",
         "rejet",
-        date(2024, 11, 20),
+        date(2024, 11, 23),  # date du sort, pas du dépôt
     )
     assert collecte.controle.ecarts == ["partie I : amendement manquant : 1181"]
 

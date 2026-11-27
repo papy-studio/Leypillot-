@@ -14,7 +14,6 @@ Règles :
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -25,7 +24,13 @@ from leypilot.collecte.cibles import CIBLES_ARTICLES, CIBLES_SUBDIVISIONS
 from leypilot.collecte.comparaison_legi import comparer, confirmer
 from leypilot.collecte.schemas import Changement, Passage, changements_du_texte
 from leypilot.collecte.sources.base import Collecte, DocumentBrut, Source
-from leypilot.collecte.vers_lot2 import changement_detecte, document_filtre
+from leypilot.collecte.vers_lot2 import (
+    TYPES_LOT2,
+    changement_detecte,
+    document_filtre,
+    motif_changement_retenu,
+    motif_document_retenu,
+)
 from leypilot.commun.base import maintenant
 from leypilot.commun.llm import ServiceLLM
 from leypilot.commun.modeles.collecte import (
@@ -42,6 +47,15 @@ class ResultatCollecte:
     nouveaux: list[int] = field(default_factory=list)  # documents ajoutés (toutes versions)
     ignores: int = 0  # documents déjà connus à l'identique
     changements: list[int] = field(default_factory=list)
+    ecarts: list[str] = field(default_factory=list)  # anomalies vues à l'enregistrement
+
+
+@dataclass
+class LivraisonLot2:
+    """Ce qui part vers le lot 2, et ce qui ne part pas, avec la raison (rien en silence)."""
+
+    paires: list[tuple[dict[str, Any], dict[str, Any]]] = field(default_factory=list)
+    retenus: list[tuple[int, str]] = field(default_factory=list)  # (changement_id, raison)
 
 
 def _derniere_version(session: Session, document: DocumentBrut) -> Document | None:
@@ -131,6 +145,12 @@ def enregistrer_collecte(
         session.add(ligne)
         session.flush()
         resultat.nouveaux.append(ligne.id)
+        if brut.date_document is None and brut.type_texte.value in TYPES_LOT2:
+            # Jamais écarté en silence : l'administrateur est alerté par l'écart.
+            resultat.ecarts.append(
+                f"{brut.source} {brut.identifiant} : document sans date, "
+                "ses changements ne peuvent pas partir vers le lot 2"
+            )
         if brut.source == Source.LEGI:
             changements = _changements_legi(session, ligne, brut, precedent)
         else:
@@ -146,8 +166,8 @@ def enregistrer_collecte(
     execution.nb_attendus = collecte.controle.attendus
     execution.nb_recus = collecte.controle.recus
     execution.nb_retenus = len(collecte.documents)
-    execution.ecarts = list(collecte.controle.ecarts)
-    execution.statut = "ok" if collecte.controle.complet else "ecart"
+    execution.ecarts = list(collecte.controle.ecarts) + resultat.ecarts
+    execution.statut = "ok" if not execution.ecarts else "ecart"
     return resultat
 
 
@@ -259,18 +279,24 @@ def _schema(ligne: ChangementExtrait) -> Changement:
     )
 
 
-def pour_lot2(
-    session: Session, apres_changement_id: int = 0
-) -> Iterator[tuple[dict[str, Any], dict[str, Any]]]:
+def pour_lot2(session: Session, apres_changement_id: int = 0) -> LivraisonLot2:
     """Paires (``DocumentFiltre``, ``ChangementDetecte``) à transmettre au lot 2, dans
-    l'ordre des identifiants. Le lot 2 garde le dernier identifiant traité."""
+    l'ordre des identifiants, et changements retenus avec leur raison. Le lot 2 garde le
+    dernier identifiant traité."""
+    livraison = LivraisonLot2()
     lignes = session.scalars(
         select(ChangementExtrait)
         .where(ChangementExtrait.id > apres_changement_id)
         .order_by(ChangementExtrait.id)
     )
     for ligne in lignes:
-        detecte = changement_detecte(ligne.id, _schema(ligne))
-        filtre = document_filtre(ligne.document.id, _brut(ligne.document))
-        if detecte and filtre:
-            yield filtre, detecte
+        changement, document = _schema(ligne), _brut(ligne.document)
+        raison = motif_changement_retenu(changement) or motif_document_retenu(document)
+        if raison:
+            livraison.retenus.append((ligne.id, raison))
+            continue
+        filtre = document_filtre(ligne.document.id, document)
+        detecte = changement_detecte(ligne.id, changement)
+        assert filtre is not None and detecte is not None
+        livraison.paires.append((filtre, detecte))
+    return livraison

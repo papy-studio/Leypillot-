@@ -1,5 +1,8 @@
 """Enregistrement en base, versions d'un document et contrat 1 → 2."""
 
+from dataclasses import replace
+from datetime import date
+
 import pytest
 from sqlalchemy import select
 
@@ -64,8 +67,9 @@ def test_versions_d_un_document(session):
 
 
 def test_execution_et_ecarts(session):
+    date_ = replace(_amendement(None, TEXTE), date_document=date(2024, 10, 17))
     resultat = depot.enregistrer_collecte(
-        session, _collecte(_amendement(None, TEXTE), ecarts=["amendement manquant : 2210"])
+        session, _collecte(date_, ecarts=["amendement manquant : 2210"])
     )
     execution = session.get(ExecutionCollecte, resultat.execution_id)
     assert execution.statut == "ecart"
@@ -81,7 +85,7 @@ def test_charger_cibles_une_seule_fois(session):
 
 def test_contrat_1_vers_2(session, archive_jorf):
     depot.enregistrer_collecte(session, jorf.lire_fichier(archive_jorf))
-    paires = list(depot.pour_lot2(session))
+    paires = depot.pour_lot2(session).paires
     # Article 56 : 30 % -> 20 % (CII) et 2024 -> 2027 (CII) ; article 55 : L. 80 B (CIR et JEI).
     assert len(paires) == 4
     filtre, detecte = next(p for p in paires if p[1]["ancienne_valeur"] == "30 %")
@@ -108,8 +112,45 @@ def test_format_attendu_par_entree_du_lot_2(session, archive_jorf):
     """S'exécute quand ``leypilot/mesure/entree.py`` (branche de P2) est fusionné."""
     entree = pytest.importorskip("leypilot.mesure.entree")
     depot.enregistrer_collecte(session, jorf.lire_fichier(archive_jorf))
-    paires = list(depot.pour_lot2(session))
+    paires = depot.pour_lot2(session).paires
     documents = [entree.DocumentFiltre.model_validate(f) for f, _ in paires]
     changements = [entree.ChangementDetecte.model_validate(d) for _, d in paires]
     assembles, erreurs = entree.assembler_tous(documents, changements)
     assert erreurs == [] and len(assembles) == 4
+
+
+def test_un_document_sans_date_n_est_jamais_ecarte_en_silence(session):
+    """Revue de Papy : le cahier dit « jamais écarté en silence »."""
+    resultat = depot.enregistrer_collecte(session, _collecte(_amendement(None, TEXTE)))
+    execution = session.get(ExecutionCollecte, resultat.execution_id)
+    assert execution.statut == "ecart"
+    assert execution.ecarts == [
+        "AN AMANR5L17PO59048B0324P0D1N002211 : document sans date, "
+        "ses changements ne peuvent pas partir vers le lot 2"
+    ]
+    livraison = depot.pour_lot2(session)
+    assert livraison.paires == []
+    assert livraison.retenus == [
+        (resultat.changements[0], "document sans date : le lot 2 ne peut pas dater l'étape")
+    ]
+
+
+def test_adoption_d_un_ancien_amendement_la_nuit_suivante(session, tmp_path):
+    """Revue de Papy : déposé en octobre, adopté la veille ; la nuit suivante, le lot 2
+    reçoit l'adoption, datée du vote."""
+    from aide_collecte import fabriquer_archive_an
+
+    from leypilot.collecte.sources import assemblee
+
+    premier = assemblee.lire_archive(fabriquer_archive_an(tmp_path, sort_2211=None))
+    depot.enregistrer_collecte(session, premier)
+    deja = max(
+        c for _, c in [(0, 0), *[(0, d["identifiant"]) for _, d in depot.pour_lot2(session).paires]]
+    )
+
+    nuit = assemblee.lire_archive(fabriquer_archive_an(tmp_path, sort_2211="Adopté"))
+    depot.enregistrer_collecte(session, nuit)
+    (filtre, detecte), *_ = depot.pour_lot2(session, deja).paires
+    assert filtre["etape"] == "adoption"
+    assert str(filtre["date_document"]) == "2024-10-25"
+    assert (detecte["ancienne_valeur"], detecte["nouvelle_valeur"]) == ("30 %", "20 %")
