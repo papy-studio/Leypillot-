@@ -6,14 +6,14 @@ Copilote de veille réglementaire pour les consultants. Leypilot surveille les t
 
 1. **Collecter et détecter** : récupérer chaque nuit les nouveaux textes et en extraire les changements (taux, plafonds, conditions).
 2. **Comprendre et suivre** : résumer chaque changement en citant le texte, puis suivre la mesure de son dépôt à son entrée en vigueur.
-3. **Chiffrer** : calculer en euros l'écart pour chaque client, « loi actuelle contre réforme », avec un moteur déterministe (OpenFisca).
-4. **Cibler, alerter, prioriser** : prévenir les consultants concernés, classer les actions par priorité et envoyer la liste de la semaine.
+3. **Cibler et chiffrer** : trouver les clients concernés et calculer en euros l'écart pour chacun, « loi actuelle contre réforme », avec un moteur déterministe.
+4. **Alerter et agir** : prévenir les consultants concernés, classer les actions par priorité et envoyer la liste de la semaine.
 5. **Décider et tracer** : le consultant accepte, reporte ou rejette l'action ; chaque décision est inscrite dans un journal non modifiable.
 
 ## Principes
 
 - **Le LLM ne produit jamais un montant.** Tous les montants viennent du moteur de calcul.
-- **Pas de GPU.** Le LLM est appelé par API (Mistral, Claude en secours).
+- **Pas de GPU.** Le LLM est appelé par API (Claude, seul modèle retenu).
 - **Pas d'e-mail.** Les alertes passent par l'application (notifications Web Push).
 - **Sources officielles d'abord.** Chaque résumé cite le passage du texte dont il vient.
 
@@ -23,11 +23,11 @@ Copilote de veille réglementaire pour les consultants. Leypilot surveille les t
 |---|---|---|---|
 | Collecter et détecter | Personne 1 | `leypilot/collecte/` | S1, S2, A1 |
 | Comprendre et suivre la mesure | Personne 2 | `leypilot/mesure/`, `leypilot/commun/llm/` | S3, A2 à A5, couche LLM |
-| Chiffrer | Personne 3 | `leypilot/calcul/`, `openfisca_leypilot/` | M1 à M6, G3 |
-| Cibler, alerter, prioriser | Personne 4 | `leypilot/alertes/` | S4, S5, G1, G2, G4 |
+| Cibler et chiffrer | Personne 3 | `leypilot/calcul/`, `openfisca_leypilot/` | S4, M1 à M6, G3 |
+| Alerter et agir | Personne 4 | `leypilot/alertes/` | S5, G1, G2, G4 |
 | Plateforme et interface | Personne 5 | `leypilot/commun/`, `leypilot/api/`, `leypilot/taches/`, `web/`, `migrations/` | Socle, G5, G6 |
 
-Les modules communiquent par la base PostgreSQL : chaque table a un seul propriétaire qui l'écrit, les autres la lisent.
+Les données circulent en cascade, P1 → P2 → P3 → P4 → P5 : chaque lot lit ce que produit le précédent et le transmet enrichi au suivant. La plateforme de P5 et la couche LLM de P2 sont des outils communs. Les modules communiquent par la base PostgreSQL : chaque table a un seul propriétaire qui l'écrit, les autres la lisent.
 
 **Technologies :** Python 3.12, FastAPI, PostgreSQL, SQLAlchemy, Alembic, Pydantic, OpenFisca, rapidfuzz, Jinja2, APScheduler, React (PWA).
 

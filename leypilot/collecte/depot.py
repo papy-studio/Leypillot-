@@ -1,0 +1,232 @@
+"""Enregistrement en base d'une collecte (S1 → S2 → A1) et lecture pour le lot 2.
+
+    resultat = enregistrer_collecte(session, collecte)
+    session.commit()   # comme le lot 2, le lot 1 ne fait jamais de commit lui-même
+
+Règles :
+- un document déjà reçu à l'identique (mêmes empreintes) est ignoré ;
+- un document qui change devient une nouvelle version : « texte_modifie » si son texte
+  change, « changement_etat » si seul son état change (sort, date). Dans les deux cas
+  l'extraction est refaite sur la nouvelle version : le lot 2 ne lit que des changements,
+  c'est donc par eux qu'il apprend qu'un amendement a été adopté ou rejeté ;
+- chaque passage laisse une ligne ``execution_collecte`` (statut « ok » ou « ecart »).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from dataclasses import dataclass, field
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from leypilot.collecte.cibles import CIBLES_ARTICLES, CIBLES_SUBDIVISIONS
+from leypilot.collecte.schemas import Changement, Passage, changements_du_texte
+from leypilot.collecte.sources.base import Collecte, DocumentBrut
+from leypilot.collecte.vers_lot2 import changement_detecte, document_filtre
+from leypilot.commun.base import maintenant
+from leypilot.commun.modeles.collecte import (
+    ChangementExtrait,
+    Cible,
+    Document,
+    ExecutionCollecte,
+)
+
+
+@dataclass
+class ResultatCollecte:
+    execution_id: int
+    nouveaux: list[int] = field(default_factory=list)  # documents ajoutés (toutes versions)
+    ignores: int = 0  # documents déjà connus à l'identique
+    changements: list[int] = field(default_factory=list)
+
+
+def _derniere_version(session: Session, document: DocumentBrut) -> Document | None:
+    return session.scalars(
+        select(Document)
+        .where(Document.source == document.source, Document.identifiant == document.identifiant)
+        .order_by(Document.version.desc())
+        .limit(1)
+    ).first()
+
+
+def _ligne_changement(changement: Changement, document_id: int) -> ChangementExtrait:
+    return ChangementExtrait(
+        document_id=document_id,
+        operation=changement.operation.value,
+        code=changement.code,
+        article=changement.article,
+        localisation=changement.localisation,
+        dispositif=changement.dispositif,
+        parametre=changement.parametre,
+        objet=changement.objet,
+        ancienne_valeur=changement.ancienne_valeur,
+        nouvelle_valeur=changement.nouvelle_valeur,
+        passage_debut=changement.passage.debut,
+        passage_fin=changement.passage.fin,
+        passage_texte=changement.passage.texte,
+        clauses_application=list(changement.clauses_application),
+        methode=changement.methode,
+        coordination=changement.coordination,
+        alinea_projet=changement.alinea_projet,
+        statut=changement.statut,
+        motifs=[m.value for m in changement.motifs],
+    )
+
+
+def enregistrer_collecte(session: Session, collecte: Collecte) -> ResultatCollecte:
+    execution = ExecutionCollecte(source=collecte.source, fichier=collecte.fichier)
+    session.add(execution)
+    session.flush()
+    resultat = ResultatCollecte(execution_id=execution.id)
+
+    for brut in collecte.documents:
+        precedent = _derniere_version(session, brut)
+        if precedent and (precedent.empreinte_texte, precedent.empreinte_etat) == (
+            brut.empreinte_texte,
+            brut.empreinte_etat,
+        ):
+            resultat.ignores += 1
+            continue
+        if precedent is None:
+            evenement = "nouveau"
+        elif precedent.empreinte_texte != brut.empreinte_texte:
+            evenement = "texte_modifie"
+        else:
+            evenement = "changement_etat"
+        ligne = Document(
+            source=brut.source,
+            identifiant=brut.identifiant,
+            version=(precedent.version + 1) if precedent else 1,
+            version_precedente_id=precedent.id if precedent else None,
+            evenement=evenement,
+            empreinte_texte=brut.empreinte_texte,
+            empreinte_etat=brut.empreinte_etat,
+            nature=brut.nature,
+            type_texte=brut.type_texte,
+            titre=brut.titre,
+            date_document=brut.date_document,
+            url_officielle=brut.url_officielle,
+            nor=brut.nor,
+            eli=brut.eli,
+            dossier_legislatif=brut.dossier_legislatif,
+            numero_amendement=brut.numero_amendement,
+            etape=brut.etape,
+            etat=_json(brut.etat),
+            meta=_json(brut.meta),
+            texte=brut.texte,
+            chemin_brut=brut.chemin_brut,
+            execution_id=execution.id,
+        )
+        session.add(ligne)
+        session.flush()
+        resultat.nouveaux.append(ligne.id)
+        for changement in changements_du_texte(ligne.id, brut.texte):
+            extrait = _ligne_changement(changement, ligne.id)
+            session.add(extrait)
+            session.flush()
+            resultat.changements.append(extrait.id)
+
+    execution.fin = maintenant()
+    execution.nb_lus = collecte.nb_lus
+    execution.nb_attendus = collecte.controle.attendus
+    execution.nb_recus = collecte.controle.recus
+    execution.nb_retenus = len(collecte.documents)
+    execution.ecarts = list(collecte.controle.ecarts)
+    execution.statut = "ok" if collecte.controle.complet else "ecart"
+    return resultat
+
+
+def _json(valeurs: dict[str, Any]) -> dict[str, Any]:
+    """Dates et autres objets en texte, pour une colonne JSON."""
+    return {
+        cle: (valeur.isoformat() if hasattr(valeur, "isoformat") else valeur)
+        for cle, valeur in valeurs.items()
+    }
+
+
+def charger_cibles(session: Session) -> int:
+    """Remplit la table ``cible`` au premier démarrage. Renvoie le nombre de lignes ajoutées."""
+    if session.scalars(select(Cible).limit(1)).first() is not None:
+        return 0
+    lignes = [
+        Cible(dispositif=d, code=code, article=article, niveau=cible.niveau, confirme=True)
+        for (code, article), cible in CIBLES_ARTICLES.items()
+        for d in cible.dispositifs
+    ]
+    lignes += [
+        Cible(
+            dispositif=d,
+            code="code général des impôts",
+            article=article,
+            subdivision=motif.pattern,
+            niveau="coeur",
+            confirme=True,
+        )
+        for article, motif, d in CIBLES_SUBDIVISIONS
+    ]
+    session.add_all(lignes)
+    return len(lignes)
+
+
+def _brut(document: Document) -> DocumentBrut:
+    return DocumentBrut(
+        source=document.source,
+        identifiant=document.identifiant,
+        nature=document.nature,
+        type_texte=document.type_texte,
+        titre=document.titre,
+        date_document=document.date_document,
+        url_officielle=document.url_officielle,
+        texte=document.texte,
+        nor=document.nor,
+        eli=document.eli,
+        dossier_legislatif=document.dossier_legislatif,
+        numero_amendement=document.numero_amendement,
+        etape=document.etape,
+    )
+
+
+def _schema(ligne: ChangementExtrait) -> Changement:
+    return Changement(
+        document_id=ligne.document_id,
+        operation=ligne.operation,
+        code=ligne.code,
+        article=ligne.article,
+        localisation=ligne.localisation,
+        dispositif=ligne.dispositif,
+        parametre=ligne.parametre,
+        objet=ligne.objet,
+        ancienne_valeur=ligne.ancienne_valeur,
+        nouvelle_valeur=ligne.nouvelle_valeur,
+        passage=Passage(
+            document_id=ligne.document_id,
+            debut=ligne.passage_debut,
+            fin=ligne.passage_fin,
+            texte=ligne.passage_texte,
+        ),
+        methode=ligne.methode,
+        coordination=ligne.coordination,
+        alinea_projet=ligne.alinea_projet,
+        clauses_application=ligne.clauses_application,
+        statut=ligne.statut,
+        motifs=ligne.motifs,
+    )
+
+
+def pour_lot2(
+    session: Session, apres_changement_id: int = 0
+) -> Iterator[tuple[dict[str, Any], dict[str, Any]]]:
+    """Paires (``DocumentFiltre``, ``ChangementDetecte``) à transmettre au lot 2, dans
+    l'ordre des identifiants. Le lot 2 garde le dernier identifiant traité."""
+    lignes = session.scalars(
+        select(ChangementExtrait)
+        .where(ChangementExtrait.id > apres_changement_id)
+        .order_by(ChangementExtrait.id)
+    )
+    for ligne in lignes:
+        detecte = changement_detecte(ligne.id, _schema(ligne))
+        filtre = document_filtre(ligne.document.id, _brut(ligne.document))
+        if detecte and filtre:
+            yield filtre, detecte
