@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from leypilot.commun.modeles.mesure import Mesure, ResumeMesure, TransitionMesure
 from leypilot.mesure.dates import jours_restants
 from leypilot.mesure.graduation import Niveau, niveau
-from leypilot.mesure.schemas import Dispositif, NatureDate, StatutMesure
+from leypilot.mesure.schemas import Dispositif, Evenement, NatureDate, StatutMesure
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,7 @@ class VueMesure:
     nouvelle_valeur: str | None
     conditions: tuple[str, ...]
     statut: StatutMesure
+    amendement_adopte: bool  # adopté en séance, texte pas encore voté
     niveau: Niveau  # information (proposée) ou action (au moins votée, A5)
     date_publication: date | None
     date_entree_vigueur: date | None
@@ -72,6 +73,9 @@ def _vue(session: Session, mesure: Mesure, aujourd_hui: date) -> VueMesure:
         nouvelle_valeur=mesure.nouvelle_valeur,
         conditions=tuple(mesure.conditions or ()),
         statut=mesure.statut,
+        amendement_adopte=any(
+            version.evenement == Evenement.ADOPTION_AMENDEMENT for version in mesure.versions
+        ),
         niveau=niveau(mesure.statut),
         date_publication=mesure.date_publication,
         date_entree_vigueur=mesure.date_entree_vigueur,

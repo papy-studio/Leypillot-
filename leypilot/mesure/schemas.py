@@ -34,6 +34,9 @@ class Evenement(StrEnum):
 
     DEPOT = "depot"  # amendement ou projet de texte déposé
     ADOPTION = "adoption"  # texte voté
+    # Amendement adopté en séance : une étape du débat, le texte n'est pas encore voté
+    # (Sénat, commission mixte paritaire, vote final, Conseil constitutionnel).
+    ADOPTION_AMENDEMENT = "adoption_amendement"
     PUBLICATION = "publication"  # loi, décret ou arrêté publié au JO
     ENTREE_EN_VIGUEUR = "entree_en_vigueur"  # date d'application atteinte (tâche du lot 2)
     REJET = "rejet"

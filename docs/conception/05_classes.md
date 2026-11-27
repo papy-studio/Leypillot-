@@ -85,6 +85,7 @@ classDiagram
         <<enumeration>>
         depot
         adoption
+        adoption_amendement
         publication
         entree_en_vigueur
         rejet

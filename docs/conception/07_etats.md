@@ -17,7 +17,8 @@ stateDiagram-v2
     [*] --> votee : adoption
     [*] --> publiee : publication (décret, arrêté)
 
-    proposee --> votee : adoption
+    proposee --> proposee : amendement adopté en séance
+    proposee --> votee : adoption du texte
     proposee --> abandonnee : rejet ou suppression
     votee --> publiee : publication au JO / date_publication
     votee --> abandonnee : censure du Conseil constitutionnel
@@ -37,6 +38,7 @@ stateDiagram-v2
 
 | Règle | Comportement codé |
 |---|---|
+| Un amendement adopté en séance (`adoption_amendement`) | Aucune transition : la mesure reste proposée, niveau « information ». L'étape est gardée dans `version_mesure` et transmise à P3 (`amendement_adopte`). Seul le texte définitivement adopté fait passer « votée » |
 | Un événement qui confirme le statut actuel (deuxième amendement d'une mesure proposée) | Aucune transition ; la mesure est complétée (identifiants, résumé) |
 | Une transition absente de la table (publication d'une mesure seulement proposée) | `TransitionInterdite` : le statut ne bouge pas, la mesure passe « à revoir » |
 | Un rejet sur une mesure inconnue | Ignoré, signalé dans les erreurs du traitement |

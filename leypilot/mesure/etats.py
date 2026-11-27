@@ -4,6 +4,10 @@ Parcours : Proposée → Votée → Publiée → Appliquée, plus Abandonnée (r
 suppression ou censure). Seules les transitions de ``TRANSITIONS`` sont
 permises ; chacune est déclenchée par un événement de la source.
 
+« Votée » veut dire texte définitivement adopté : c'est à partir de là que des
+actions sont permises (A5). L'adoption d'un amendement en séance ne change pas
+le statut : la mesure reste proposée, l'étape est gardée dans ``version_mesure``.
+
 Points ouverts (cahier technique) : statut « En attente de décret » et cycle
 propre au BOFiP. Ils s'ajouteront ici sans toucher au reste.
 """
@@ -25,6 +29,7 @@ TRANSITIONS: dict[StatutMesure, frozenset[StatutMesure]] = {
 STATUT_APRES: dict[Evenement, StatutMesure] = {
     Evenement.DEPOT: S.PROPOSEE,
     Evenement.ADOPTION: S.VOTEE,
+    Evenement.ADOPTION_AMENDEMENT: S.PROPOSEE,  # statut initial seulement
     Evenement.PUBLICATION: S.PUBLIEE,
     Evenement.ENTREE_EN_VIGUEUR: S.APPLIQUEE,
     Evenement.REJET: S.ABANDONNEE,
@@ -36,6 +41,9 @@ STATUT_APRES: dict[Evenement, StatutMesure] = {
 # directement publié ; une mesure peut aussi être repérée au moment du vote.
 STATUTS_INITIAUX = frozenset({S.PROPOSEE, S.VOTEE, S.PUBLIEE})
 STATUTS_FINAUX = frozenset({S.APPLIQUEE, S.ABANDONNEE})
+
+# Événements qui complètent une mesure sans jamais changer son statut.
+EVENEMENTS_SANS_TRANSITION = frozenset({Evenement.ADOPTION_AMENDEMENT})
 
 
 class TransitionInterdite(ValueError):
@@ -52,7 +60,10 @@ def statut_initial(evenement: Evenement) -> StatutMesure:
 
 
 def prochain_statut(actuel: StatutMesure, evenement: Evenement) -> StatutMesure | None:
-    """Statut après l'événement ; ``None`` si l'événement confirme le statut actuel."""
+    """Statut après l'événement ; ``None`` si l'événement confirme le statut actuel
+    ou ne change jamais le statut (amendement adopté en séance)."""
+    if evenement in EVENEMENTS_SANS_TRANSITION:
+        return None
     cible = STATUT_APRES[evenement]
     if cible == actuel:
         return None

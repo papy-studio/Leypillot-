@@ -101,3 +101,10 @@ def test_action_interdite_sur_mesure_proposee():
     with pytest.raises(ActionInterdite):
         verifier_action_autorisee(S.PROPOSEE)
     verifier_action_autorisee(S.VOTEE)
+
+
+def test_amendement_adopte_ne_change_jamais_le_statut():
+    # Adopté en séance, le texte peut encore changer : pas d'action possible (A5).
+    assert prochain_statut(S.PROPOSEE, E.ADOPTION_AMENDEMENT) is None
+    assert prochain_statut(S.VOTEE, E.ADOPTION_AMENDEMENT) is None
+    assert statut_initial(E.ADOPTION_AMENDEMENT) == S.PROPOSEE

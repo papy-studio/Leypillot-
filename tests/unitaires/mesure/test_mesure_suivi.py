@@ -4,6 +4,7 @@ import pytest
 
 from leypilot.commun.llm import ClientFactice, ClientNonConfigure, ServiceLLM
 from leypilot.commun.modeles.mesure import Mesure, ResumeMesure, VersionMesure
+from leypilot.mesure.graduation import Niveau
 from leypilot.mesure.requetes import (
     VueMesure,
     mesures_modifiees_depuis,
@@ -258,3 +259,39 @@ def test_resume_en_attente_puis_relance(session, fabrique):
     assert etat.resume == "Le taux du CII baisse de 30 % à 20 %."
     assert session.query(ResumeMesure).filter_by(en_attente=True).count() == 0
     assert retabli.relancer_resumes_en_attente() == []
+
+
+def test_amendement_adopte_laisse_la_mesure_proposee(session, fabrique):
+    suivi = SuiviMesures(session)
+    ids = {"dossier_legislatif": "PLF2026", "numero_amendement": "I-1234"}
+    premier = suivi.traiter(fabrique(identifiant=1, identifiants=ids))
+    adopte = suivi.traiter(
+        fabrique(
+            identifiant=2,
+            evenement="adoption_amendement",
+            date_document=date(2025, 11, 5),
+            identifiants=ids,
+        )
+    )
+
+    assert premier.mesure_id is not None
+    assert adopte.mesure_id == premier.mesure_id
+    assert adopte.transition is None
+    vue = vue_mesure(session, premier.mesure_id)
+    assert vue is not None
+    assert (vue.statut, vue.niveau, vue.amendement_adopte) == (
+        S.PROPOSEE,
+        Niveau.INFORMATION,
+        True,
+    )
+
+    # Seul le texte définitivement adopté fait passer la mesure « votée ».
+    vote = suivi.traiter(
+        fabrique(
+            identifiant=3,
+            evenement="adoption",
+            date_document=date(2025, 12, 18),
+            identifiants={"dossier_legislatif": "PLF2026"},
+        )
+    )
+    assert vote.transition == S.VOTEE

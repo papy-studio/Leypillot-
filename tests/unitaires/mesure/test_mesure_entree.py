@@ -115,3 +115,10 @@ def test_assembler_tous_trie_par_date_et_signale_les_orphelins():
     assert [c.identifiant for c in changements] == [1, 2]
     assert [c.evenement for c in changements] == [Evenement.DEPOT, Evenement.ADOPTION]
     assert len(erreurs) == 1 and "404" in erreurs[0]
+
+
+def test_amendement_adopte_n_est_pas_un_texte_vote():
+    assert document(etape="adoption").evenement() == Evenement.ADOPTION_AMENDEMENT
+    assert document(etape="rejet").evenement() == Evenement.REJET
+    adopte = document(type_texte="texte_adopte", etape="adoption")
+    assert adopte.evenement() == Evenement.ADOPTION

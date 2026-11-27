@@ -83,7 +83,11 @@ class DocumentFiltre(BaseModel):
     etape: Evenement | None = None
 
     def evenement(self) -> Evenement:
-        return self.etape or ETAPE_PAR_TYPE[self.type_texte]
+        etape = self.etape or ETAPE_PAR_TYPE[self.type_texte]
+        # Un amendement adopté n'est pas un texte voté : la mesure reste proposée.
+        if self.type_texte == TypeTexte.AMENDEMENT and etape == Evenement.ADOPTION:
+            return Evenement.ADOPTION_AMENDEMENT
+        return etape
 
 
 class ChangementDetecte(BaseModel):

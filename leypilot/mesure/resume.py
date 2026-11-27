@@ -33,6 +33,7 @@ VERSION_GABARIT = "gabarit.v1"
 LIBELLES_ETAPE = {
     Evenement.DEPOT: "mesure proposée (amendement ou projet de texte déposé)",
     Evenement.ADOPTION: "mesure votée",
+    Evenement.ADOPTION_AMENDEMENT: "amendement adopté en séance, texte pas encore voté",
     Evenement.PUBLICATION: "texte publié au Journal officiel",
     Evenement.ENTREE_EN_VIGUEUR: "mesure entrée en application",
     Evenement.REJET: "mesure rejetée",

@@ -44,7 +44,7 @@ Les identifiants techniques (`id`, entier auto-incrémenté) et les dates de cr�
 
 | Code | Signification | Type | Règle |
 |---|---|---|---|
-| `evenement` | Étape de procédure que porte le document | énum | depot, adoption, publication, entree_en_vigueur, rejet, suppression, censure |
+| `evenement` | Étape de procédure que porte le document | énum | depot, adoption, adoption_amendement, publication, entree_en_vigueur, rejet, suppression, censure |
 | `date_document` | Date de l'étape | date | |
 | `article_vise` | Article modifié | texte(300) | « article 244 quater B du code général des impôts » |
 | `parametre` | Ce qui change | texte(300) | taux, plafond, date, condition |
