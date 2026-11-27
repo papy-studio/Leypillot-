@@ -234,13 +234,31 @@ def _valeur(trouve: re.Match[str], nom: str) -> str | None:
     return valeur or None
 
 
+@dataclass
+class LigneSansFormule:
+    """Ligne qui touche un article suivi sans formule reconnue : candidate au secours LLM."""
+
+    ligne: str
+    code: str | None
+    article: str
+    localisation: str
+    articles: list[tuple[str | None, str]]
+    clauses_application: list[str] = field(default_factory=list)
+
+
 def extraire(texte: str) -> list[Operation]:
-    """Opérations détectées dans un texte.
+    """Opérations détectées dans un texte (voir ``extraire_tout``)."""
+    return extraire_tout(texte)[0]
+
+
+def extraire_tout(texte: str) -> tuple[list[Operation], list[LigneSansFormule]]:
+    """Opérations détectées dans un texte, et lignes sans formule qui touchent un article suivi.
 
     Chaque opération reçoit aussi, telles quelles, les clauses d'application du même
     article de loi (« … s'applique aux dépenses exposées à compter du … ») : le lot 1 les
     recopie, la personne 2 en tire les dates, la personne 3 les conditions.
     """
+    orphelines: list[tuple[int, LigneSansFormule]] = []
     operations: list[tuple[int, Operation]] = []
     pile: list[tuple[float, dict[str, str]]] = []
     bloc = 0
@@ -298,6 +316,33 @@ def extraire(texte: str) -> list[Operation]:
                         ),
                     )
                 )
+        if not occupe and not corps.startswith("«"):  # « … » : nouveau texte cité, pas une cible
+            orpheline = _ligne_sans_formule(ligne, corps, propre, contexte)
+            if orpheline:
+                orphelines.append((bloc, orpheline))
     for numero_bloc, operation in operations:
         operation.clauses_application = list(clauses.get(numero_bloc, []))
-    return [operation for _, operation in operations]
+    for numero_bloc, orpheline in orphelines:
+        orpheline.clauses_application = list(clauses.get(numero_bloc, []))
+    return [o for _, o in operations], [o for _, o in orphelines]
+
+
+def _ligne_sans_formule(
+    ligne: str, corps: str, propre: dict[str, str], contexte: _Contexte
+) -> LigneSansFormule | None:
+    """Une ligne sans formule est suspecte si elle nomme un article suivi, ou si elle cite
+    une valeur entre guillemets sous le chapeau d'un article suivi."""
+    code = propre.get("code") or contexte.code
+    liste = [(c or code, a) for c, a in tous_articles(corps)]
+    if not liste and contexte.article and "«" in corps:
+        liste = [(code, contexte.article)]
+    dans_cible = [cle for cle in liste if cle in CIBLES_ARTICLES]
+    if not dans_cible:
+        return None
+    return LigneSansFormule(
+        ligne=ligne,
+        code=dans_cible[0][0],
+        article=dans_cible[0][1],
+        localisation=" > ".join(contexte.subdivisions),
+        articles=liste,
+    )

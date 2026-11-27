@@ -11,11 +11,15 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from leypilot.collecte.cibles import rattacher
 from leypilot.collecte.formules import Operation as OperationExtraite
+
+if TYPE_CHECKING:
+    from leypilot.commun.llm import ServiceLLM
 
 
 class Operation(StrEnum):
@@ -32,6 +36,7 @@ class Operation(StrEnum):
     SUBSTITUTION_AMENDEMENT = "substitution_amendement"
     CREATION_ARTICLE = "creation_article"  # vu dans LEGI : nouvel article
     ABROGATION_ARTICLE = "abrogation_article"  # vu dans LEGI : article abrogé
+    NON_RECONNUE = "non_reconnue"  # ligne sans formule reconnue (secours LLM ou humain)
 
 
 class Methode(StrEnum):
@@ -84,6 +89,9 @@ class Changement(BaseModel):
     ancienne_valeur: str | None = None
     nouvelle_valeur: str | None = None
     passage: Passage
+    # Méthode « legi » : passage de la version précédente de l'article, où se lit l'ancienne
+    # valeur (le passage, lui, est dans la nouvelle version).
+    passage_precedent: Passage | None = None
     methode: Methode
     coordination: bool = False  # simple mise à jour d'un renvoi (« la référence »)
     alinea_projet: int | None = None  # amendement au projet de loi : alinéa visé
@@ -94,10 +102,15 @@ class Changement(BaseModel):
 
     @model_validator(mode="after")
     def coherence(self) -> Changement:
-        # 1. Les valeurs sont recopiées mot pour mot du passage.
-        for nom in ("ancienne_valeur", "nouvelle_valeur"):
+        # 1. Les valeurs sont recopiées mot pour mot du passage (l'ancienne valeur, du passage
+        #    précédent quand il existe).
+        source_ancienne = self.passage_precedent or self.passage
+        for nom, passage in (
+            ("ancienne_valeur", source_ancienne),
+            ("nouvelle_valeur", self.passage),
+        ):
             valeur = getattr(self, nom)
-            if valeur and valeur not in self.passage.texte:
+            if valeur and valeur not in passage.texte:
                 raise ValueError(f"{nom} absente du passage : {valeur!r}")
         # 2. Statut et motifs vont ensemble (« hors_cible » n'est qu'une information).
         bloquants = [m for m in self.motifs if m != Motif.HORS_CIBLE]
@@ -178,13 +191,21 @@ def depuis_operation(
     )
 
 
-def changements_du_texte(document_id: int, texte_document: str) -> list[Changement]:
-    """Tous les changements d'un document : un par opération et par dispositif touché."""
-    from leypilot.collecte.formules import extraire
+def changements_du_texte(
+    document_id: int, texte_document: str, service: ServiceLLM | None = None
+) -> list[Changement]:
+    """Tous les changements d'un document : un par opération et par dispositif touché,
+    plus un changement « à revoir » par ligne qui touche un article suivi sans formule
+    reconnue (lue par le LLM de secours si ``service`` est fourni)."""
+    from leypilot.collecte.formules import extraire_tout
+    from leypilot.collecte.secours import lire_ligne
 
+    operations, sans_formule = extraire_tout(texte_document)
     resultat: list[Changement] = []
-    for operation in extraire(texte_document):
+    for operation in operations:
         dispositifs = dispositifs_de(operation)
         for dispositif in dispositifs if len(dispositifs) > 1 else [None]:
             resultat.append(depuis_operation(operation, document_id, texte_document, dispositif))
+    for ligne in sans_formule:
+        resultat.extend(lire_ligne(ligne, document_id, texte_document, service))
     return resultat

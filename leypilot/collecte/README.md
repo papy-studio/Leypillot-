@@ -12,11 +12,11 @@ from leypilot.collecte.depot import enregistrer_collecte, pour_lot2
 from leypilot.collecte.sources.jorf import ConnecteurJORF
 
 for collecte in ConnecteurJORF(dossier_brut).recuperer(date.today() - timedelta(days=1)):
-    enregistrer_collecte(session, collecte)   # documents, changements, contrôle
-session.commit()                              # le lot 1 ne fait jamais de commit
+    enregistrer_collecte(session, collecte)  # documents, changements, contrôle
+session.commit()  # le lot 1 ne fait jamais de commit
 
 for document_filtre, changement_detecte in pour_lot2(session, dernier_id_traite):
-    ...                                       # format de leypilot.mesure.entree (lot 2)
+    ...  # format de leypilot.mesure.entree (lot 2)
 ```
 
 Essais à la main, sans base :
@@ -35,6 +35,8 @@ python -m leypilot.collecte piste        # test de l'accès PISTE, le secret n'e
 |---|---|
 | `sources/base.py` | Interface commune `recuperer(depuis)`, format `DocumentBrut`, téléchargement |
 | `sources/jorf.py` | JO : archives quotidiennes de la DILA, sommaire et numéros de séquence |
+| `sources/legi.py` | Codes consolidés (fonds LEGI de la DILA) : version actuelle des articles suivis |
+| `sources/dila.py` | Outils communs aux fichiers XML de la DILA |
 | `sources/assemblee.py` | Amendements de l'Assemblée nationale (archive JSON) |
 | `sources/senat.py` | Amendements du Sénat (CSV « jeu complet ») |
 | `sources/bofip.py` | Doctrine BOFiP (flux hebdomadaires numérotés, empreinte MD5) |
@@ -43,6 +45,8 @@ python -m leypilot.collecte piste        # test de l'accès PISTE, le secret n'e
 | `cibles.py` | Filtre large des documents, table cible (articles et subdivisions) |
 | `formules.py` | Formules législatives (expressions régulières) et suivi des chapeaux |
 | `schemas.py` | Format `Changement` et ses quatre règles de validation |
+| `secours.py` | Lignes sans formule : « à revoir », lues par le LLM de secours si disponible |
+| `comparaison_legi.py` | Écarts entre deux versions LEGI d'un article, confirmés par le JO |
 | `completude.py` | Contrôle de complétude (A1) |
 | `depot.py` | Enregistrement en base, versions, lecture pour le lot 2 |
 | `vers_lot2.py` | Contrat 1 → 2 : `DocumentFiltre` et `ChangementDetecte` |
@@ -51,6 +55,10 @@ python -m leypilot.collecte piste        # test de l'accès PISTE, le secret n'e
 Tables (propriétaire P1, dans `leypilot/commun/modeles/collecte.py`) : `execution_collecte`, `document`, `cible`, `changement`. Pas de `mesure_id` dans `changement` : le lot 2 tient le lien dans `version_mesure`.
 
 ## Contrats avec les autres lots
+
+**Comparaison LEGI.** Quand une nouvelle version d'un article suivi arrive, le lot 1 la compare à la précédente, mot à mot (un nombre et son unité comptent pour un mot). Chaque écart est confronté aux changements lus dans le texte du JO qui a modifié l'article : mêmes valeurs, il est confirmé ; sinon il part « à revoir » (`desaccord_legi`). Ces changements servent au contrôle et ne partent pas vers le lot 2.
+
+**Secours LLM.** Une ligne qui nomme un article suivi sans formule reconnue (exemple réel : amendement Sénat I-1521, « Le taux de 30 % … est augmenté à due concurrence… ») devient un changement « à revoir ». Si la couche LLM de P2 répond, sa lecture est vérifiée mot pour mot (passage et valeurs) puis transmise avec `a_revoir` vrai ; une valeur absente du texte fait rejeter la lecture.
 
 **Fournit à P2** (`vers_lot2.py`, `depot.pour_lot2`) les documents filtrés et les changements rattachés à un dispositif, au format de `leypilot/mesure/entree.py` :
 
@@ -73,9 +81,9 @@ Le test `test_format_attendu_par_entree_du_lot_2` s'exécute dès que `leypilot/
 
 ## Points ouverts
 
-- **À vérifier sur une vraie archive DILA** : le lecteur du JO est testé sur une archive reconstituée. Avant la mise en service, lancer `python -m leypilot.collecte jorf --fichier <archive>` sur une archive réelle (le site de la DILA n'est pas joignable depuis l'environnement de développement de Claude).
-- **Comparaison LEGI** (méthode `legi`, articles créés ou abrogés) : conçue, pas encore codée.
-- **Extraction de secours par LLM** : conçue (toujours « à revoir »), à brancher sur `ServiceLLM` quand Papy aura fixé le modèle.
+- **À vérifier sur de vraies archives DILA** : les lecteurs JO et LEGI sont testés sur des archives reconstituées. Avant la mise en service, lancer `python -m leypilot.collecte jorf --fichier <archive>` et `… legi --fichier <archive>` sur des archives réelles (le site de la DILA n'est pas joignable depuis l'environnement de développement de Claude).
+- **Secours LLM** : branché sur `ServiceLLM` (prompt `s2_secours.v1`). Il ne s'active qu'une fois la requête au fournisseur écrite par Papy dans `ClientFournisseur` ; d'ici là, les lignes sans formule partent « à revoir » pour un humain.
+- **LEGI** : seul le CGI est relié à son identifiant (`LEGITEXT000006069577`) ; ajouter le LPF quand son identifiant sera vérifié. Une première version reçue sert de référence : la création d'un article n'est donc pas encore signalée.
 - **Source principale** : la répartition prévoit Légifrance via PISTE, le lot 1 propose les fichiers de la DILA (`docs/adr/0001-dila-source-principale.md`). Décision de groupe.
 - **Type `version_consolidee`** (LEGI) : absent de `entree.TypeTexte` ; ces documents ne partent pas encore vers le lot 2.
 - **Correspondance sort → étape** : proposition à valider avec P2.

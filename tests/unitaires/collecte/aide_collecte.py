@@ -159,3 +159,39 @@ def fabriquer_archive_an(dossier: Path) -> Path:
         ):
             archive.writestr(f"json/{numero}.json", json.dumps(amendement_an(numero, corps, sort)))
     return chemin
+
+
+CGI_LEGI = "LEGITEXT000006069577"
+
+
+def article_legi(
+    legiarti: str, num: str, etat: str, debut: str, contenu: str, modificateur: str | None = None
+) -> str:
+    lien = (
+        f'<LIEN cidtexte="{modificateur}" sens="source" typelien="MODIFIE" naturetexte="LOI">'
+        "LOI - art. 56</LIEN>"
+        if modificateur
+        else ""
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<ARTICLE><META><META_COMMUN><ID>{legiarti}</ID><ORIGINE>LEGI</ORIGINE></META_COMMUN>
+<META_SPEC><META_ARTICLE><NUM>{num}</NUM><ETAT>{etat}</ETAT><DATE_DEBUT>{debut}</DATE_DEBUT>
+<DATE_FIN>2999-01-01</DATE_FIN></META_ARTICLE></META_SPEC></META>
+<CONTEXTE><TEXTE cid="{CGI_LEGI}"><TITRE_TXT>Code général des impôts</TITRE_TXT></TEXTE></CONTEXTE>
+<BLOC_TEXTUEL><CONTENU><p>{contenu}</p></CONTENU></BLOC_TEXTUEL>
+<LIENS>{lien}</LIENS></ARTICLE>"""
+
+
+def fabriquer_archive_legi(dossier: Path, nom: str, articles: list[str]) -> Path:
+    chemin = dossier / nom
+    with tarfile.open(chemin, "w:gz") as archive:
+        for i, contenu in enumerate(articles):
+            _ajouter(archive, f"legi/global/code_et_TNC_en_vigueur/LEGIARTI{i:012d}.xml", contenu)
+    return chemin
+
+
+# Phrase abrégée pour les tests (pas le texte intégral de l'article).
+PHRASE_CII = (
+    "Le taux du crédit d'impôt est porté à {taux} pour les dépenses mentionnées au k du II. "
+    "Les autres dépenses ne sont pas concernées."
+)

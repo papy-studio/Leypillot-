@@ -22,10 +22,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from leypilot.collecte.cibles import CIBLES_ARTICLES, CIBLES_SUBDIVISIONS
+from leypilot.collecte.comparaison_legi import comparer, confirmer
 from leypilot.collecte.schemas import Changement, Passage, changements_du_texte
-from leypilot.collecte.sources.base import Collecte, DocumentBrut
+from leypilot.collecte.sources.base import Collecte, DocumentBrut, Source
 from leypilot.collecte.vers_lot2 import changement_detecte, document_filtre
 from leypilot.commun.base import maintenant
+from leypilot.commun.llm import ServiceLLM
 from leypilot.commun.modeles.collecte import (
     ChangementExtrait,
     Cible,
@@ -66,6 +68,9 @@ def _ligne_changement(changement: Changement, document_id: int) -> ChangementExt
         passage_debut=changement.passage.debut,
         passage_fin=changement.passage.fin,
         passage_texte=changement.passage.texte,
+        passage_precedent=(
+            changement.passage_precedent.model_dump() if changement.passage_precedent else None
+        ),
         clauses_application=list(changement.clauses_application),
         methode=changement.methode,
         coordination=changement.coordination,
@@ -75,7 +80,11 @@ def _ligne_changement(changement: Changement, document_id: int) -> ChangementExt
     )
 
 
-def enregistrer_collecte(session: Session, collecte: Collecte) -> ResultatCollecte:
+def enregistrer_collecte(
+    session: Session, collecte: Collecte, service: ServiceLLM | None = None
+) -> ResultatCollecte:
+    """``service`` : couche LLM de P2 pour le secours ; sans lui, les lignes sans formule
+    restent « à revoir » pour un humain."""
     execution = ExecutionCollecte(source=collecte.source, fichier=collecte.fichier)
     session.add(execution)
     session.flush()
@@ -122,7 +131,11 @@ def enregistrer_collecte(session: Session, collecte: Collecte) -> ResultatCollec
         session.add(ligne)
         session.flush()
         resultat.nouveaux.append(ligne.id)
-        for changement in changements_du_texte(ligne.id, brut.texte):
+        if brut.source == Source.LEGI:
+            changements = _changements_legi(session, ligne, brut, precedent)
+        else:
+            changements = changements_du_texte(ligne.id, brut.texte, service)
+        for changement in changements:
             extrait = _ligne_changement(changement, ligne.id)
             session.add(extrait)
             session.flush()
@@ -136,6 +149,34 @@ def enregistrer_collecte(session: Session, collecte: Collecte) -> ResultatCollec
     execution.ecarts = list(collecte.controle.ecarts)
     execution.statut = "ok" if collecte.controle.complet else "ecart"
     return resultat
+
+
+def _changements_legi(
+    session: Session, ligne: Document, brut: DocumentBrut, precedent: Document | None
+) -> list[Changement]:
+    """Comparaison avec la version précédente, puis confirmation par le JO modificateur."""
+    code = brut.identifiant.split("/", 1)[0]
+    article = str(brut.meta.get("num", ""))
+    legi = comparer(
+        ligne.id,
+        code,
+        article,
+        precedent.texte if precedent else None,
+        brut.texte,
+        str(brut.etat.get("etat", "")),
+        precedent.id if precedent else None,
+    )
+    modificateurs = list(brut.meta.get("jorf_modificateurs") or [])
+    lignes_jo = session.scalars(
+        select(ChangementExtrait)
+        .join(Document)
+        .where(
+            Document.source == Source.JORF,
+            Document.identifiant.in_(modificateurs),
+            ChangementExtrait.article == article,
+        )
+    ).all()
+    return confirmer(legi, [_schema(jo) for jo in lignes_jo])
 
 
 def _json(valeurs: dict[str, Any]) -> dict[str, Any]:
@@ -205,6 +246,9 @@ def _schema(ligne: ChangementExtrait) -> Changement:
             debut=ligne.passage_debut,
             fin=ligne.passage_fin,
             texte=ligne.passage_texte,
+        ),
+        passage_precedent=(
+            Passage.model_validate(ligne.passage_precedent) if ligne.passage_precedent else None
         ),
         methode=ligne.methode,
         coordination=ligne.coordination,

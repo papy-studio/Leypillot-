@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 from leypilot.collecte.cibles import dans_perimetre
@@ -39,10 +39,17 @@ from leypilot.collecte.sources.base import (
     client_http,
     telecharger,
 )
-from leypilot.collecte.textes import normaliser, texte_brut
+from leypilot.collecte.sources.dila import (
+    archives_publiees,
+    contenu_html,
+    entier,
+    jour,
+    local,
+    premier,
+)
+from leypilot.collecte.textes import normaliser
 
 URL_JORF = "https://echanges.dila.gouv.fr/OPENDATA/JORF/"
-NOM_ARCHIVE = re.compile(r"JORF_(\d{8})-(\d{6})\.tar\.gz")
 URL_LEGIFRANCE = "https://www.legifrance.gouv.fr/jorf/id/{}"
 
 NATURES: dict[str, TypeTexte] = {
@@ -56,40 +63,6 @@ NATURES: dict[str, TypeTexte] = {
 
 
 # ------------------------------------------------------------------ lecture XML
-
-
-def _local(balise: str) -> str:
-    return balise.rsplit("}", 1)[-1]
-
-
-def _premier(racine: ET.Element, nom: str) -> str | None:
-    """Texte du premier élément ``nom`` (espaces de noms ignorés)."""
-    for element in racine.iter():
-        if _local(element.tag) == nom and (element.text or "").strip():
-            return element.text.strip()  # type: ignore[union-attr]
-    return None
-
-
-def _contenu_html(element: ET.Element | None) -> str:
-    if element is None:
-        return ""
-    interieur = (element.text or "") + "".join(
-        ET.tostring(enfant, encoding="unicode") for enfant in element
-    )
-    return texte_brut(interieur)
-
-
-def _date(valeur: str | None) -> date | None:
-    if not valeur or valeur.startswith("2999"):
-        return None
-    try:
-        return date.fromisoformat(valeur[:10])
-    except ValueError:
-        return None
-
-
-def _entier(valeur: str | None) -> int | None:
-    return int(valeur) if valeur and valeur.strip().isdigit() else None
 
 
 @dataclass
@@ -132,7 +105,7 @@ def _enfants_structure(racine: ET.Element) -> list[str]:
     return [
         element.get("id", "")
         for element in racine.iter()
-        if _local(element.tag) in {"LIEN_ART", "LIEN_SECTION_TA"} and element.get("id")
+        if local(element.tag) in {"LIEN_ART", "LIEN_SECTION_TA"} and element.get("id")
     ]
 
 
@@ -147,37 +120,37 @@ def lire_archive(chemin: Path) -> ContenuArchive:
             if fichier is None:
                 continue
             racine = ET.fromstring(fichier.read())
-            identifiant = _premier(racine, "ID") or Path(membre.name).stem
+            identifiant = premier(racine, "ID") or Path(membre.name).stem
             if identifiant.startswith("JORFCONT"):
-                numero = (_premier(racine, "NUM") or "").lstrip("0") or identifiant
+                numero = (premier(racine, "NUM") or "").lstrip("0") or identifiant
                 contenu.sommaires[numero] = [
                     element.get("idtxt", "")
                     for element in racine.iter()
-                    if _local(element.tag) == "LIEN_TXT" and element.get("idtxt")
+                    if local(element.tag) == "LIEN_TXT" and element.get("idtxt")
                 ]
-                contenu.dates_jo[numero] = _date(_premier(racine, "DATE_PUBLI"))
+                contenu.dates_jo[numero] = jour(premier(racine, "DATE_PUBLI"))
             elif identifiant.startswith("JORFTEXT"):
                 texte = contenu.textes.setdefault(identifiant, _Texte(identifiant))
-                if "/struct/" in membre.name or _local(racine.tag) == "TEXTELR":
+                if "/struct/" in membre.name or local(racine.tag) == "TEXTELR":
                     texte.ordre_articles = _enfants_structure(racine)
                     continue
-                texte.nature = _premier(racine, "NATURE") or texte.nature
-                texte.titre = _premier(racine, "TITREFULL") or _premier(racine, "TITRE")
-                texte.nor = _premier(racine, "NOR")
-                texte.eli = _premier(racine, "ID_ELI") or _premier(racine, "ELI")
-                texte.num = _premier(racine, "NUM")
-                texte.num_parution = _entier(_premier(racine, "NUM_PARUTION"))
-                texte.num_sequence = _entier(_premier(racine, "NUM_SEQUENCE"))
-                texte.date_publi = _date(_premier(racine, "DATE_PUBLI"))
-                texte.date_texte = _date(_premier(racine, "DATE_TEXTE"))
+                texte.nature = premier(racine, "NATURE") or texte.nature
+                texte.titre = premier(racine, "TITREFULL") or premier(racine, "TITRE")
+                texte.nor = premier(racine, "NOR")
+                texte.eli = premier(racine, "ID_ELI") or premier(racine, "ELI")
+                texte.num = premier(racine, "NUM")
+                texte.num_parution = entier(premier(racine, "NUM_PARUTION"))
+                texte.num_sequence = entier(premier(racine, "NUM_SEQUENCE"))
+                texte.date_publi = jour(premier(racine, "DATE_PUBLI"))
+                texte.date_texte = jour(premier(racine, "DATE_TEXTE"))
                 texte.chemin = f"{chemin.name}#{membre.name}"
             elif identifiant.startswith("JORFARTI"):
                 parent = next(
-                    (e.get("cid") for e in racine.iter() if _local(e.tag) == "TEXTE"), None
+                    (e.get("cid") for e in racine.iter() if local(e.tag) == "TEXTE"), None
                 )
-                bloc = next((e for e in racine.iter() if _local(e.tag) == "CONTENU"), None)
+                bloc = next((e for e in racine.iter() if local(e.tag) == "CONTENU"), None)
                 contenu.articles[identifiant] = _Article(
-                    identifiant, parent, _premier(racine, "NUM"), _contenu_html(bloc)
+                    identifiant, parent, premier(racine, "NUM"), contenu_html(bloc)
                 )
             elif identifiant.startswith("JORFSCTA"):
                 contenu.sections[identifiant] = _enfants_structure(racine)
@@ -221,7 +194,7 @@ def documents_et_controle(contenu: ContenuArchive, nom_archive: str) -> Collecte
     ecarts: list[str] = []
     attendus = recus = 0
     for numero, annonces in contenu.sommaires.items():
-        du_numero = [t for t in contenu.textes.values() if t.num_parution == _entier(numero)]
+        du_numero = [t for t in contenu.textes.values() if t.num_parution == entier(numero)]
         rapport = controler_sommaire(
             annonces,
             [t.identifiant for t in contenu.textes.values() if t.identifiant in annonces]
@@ -265,16 +238,6 @@ def documents_et_controle(contenu: ContenuArchive, nom_archive: str) -> Collecte
         controle=Rapport(attendus=attendus, recus=recus, ecarts=ecarts),
         nb_lus=len(contenu.textes),
     )
-
-
-def archives_publiees(page_html: str, depuis: date) -> list[str]:
-    """Noms des archives listées dans la page de la DILA, publiées depuis ``depuis``."""
-    noms = sorted(set(NOM_ARCHIVE.findall(page_html)))
-    return [
-        f"JORF_{jour}-{heure}.tar.gz"
-        for jour, heure in noms
-        if datetime.strptime(jour, "%Y%m%d").date() >= depuis
-    ]
 
 
 class ConnecteurJORF:

@@ -3,6 +3,7 @@
     python -m leypilot.collecte extraire donnees_exemple/lot1_corpus/an_I-2211.txt
     python -m leypilot.collecte jorf --fichier JORF_20261122-003012.tar.gz
     python -m leypilot.collecte jorf --depuis 2026-11-22          (télécharge)
+    python -m leypilot.collecte legi --fichier LEGI_20261122-003012.tar.gz
     python -m leypilot.collecte an --fichier Amendements.json.zip
     python -m leypilot.collecte senat --session 2025-2026 --texte 138
     python -m leypilot.collecte bofip
@@ -57,7 +58,7 @@ def main(arguments: list[str] | None = None) -> int:
     commandes = parseur.add_subparsers(dest="commande", required=True)
     extraire = commandes.add_parser("extraire", help="changements d'un texte (fichier .txt)")
     extraire.add_argument("chemin", type=Path)
-    for nom in ("jorf", "an", "bofip"):
+    for nom in ("jorf", "legi", "an", "bofip"):
         sous = commandes.add_parser(nom)
         sous.add_argument("--fichier", type=Path)
         sous.add_argument("--depuis", type=date.fromisoformat, default=date.today() - timedelta(1))
@@ -89,6 +90,12 @@ def main(arguments: list[str] | None = None) -> int:
         if args.fichier:
             return _afficher([jorf.lire_fichier(args.fichier)])
         return _afficher(jorf.ConnecteurJORF(brut).recuperer(args.depuis))
+    if args.commande == "legi":
+        from leypilot.collecte.sources import legi
+
+        if args.fichier:
+            return _afficher([legi.lire_archive(args.fichier)])
+        return _afficher(legi.ConnecteurLEGI(brut).recuperer(args.depuis))
     if args.commande == "an":
         from leypilot.collecte.sources import assemblee
 

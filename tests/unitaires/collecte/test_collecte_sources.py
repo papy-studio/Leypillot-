@@ -9,6 +9,7 @@ from aide_collecte import DECRET, LOI, fabriquer_archive_jorf
 from leypilot.collecte.completude import controler_numeros, controler_sommaire, trous
 from leypilot.collecte.sources import assemblee, bofip, jorf, senat
 from leypilot.collecte.sources.base import Source, TypeTexte, etape_depuis_sort
+from leypilot.collecte.sources.dila import archives_publiees
 
 # ------------------------------------------------------------------ complétude
 
@@ -55,7 +56,7 @@ def test_jorf_signale_un_texte_absent(tmp_path):
 
 def test_jorf_liste_des_archives():
     page = '<a href="JORF_20261121-003012.tar.gz">x</a> <a href="JORF_20261122-003015.tar.gz">'
-    assert jorf.archives_publiees(page, date(2026, 11, 22)) == ["JORF_20261122-003015.tar.gz"]
+    assert archives_publiees(page, date(2026, 11, 22)) == ["JORF_20261122-003015.tar.gz"]
 
 
 # ------------------------------------------------------------------ Assemblée nationale

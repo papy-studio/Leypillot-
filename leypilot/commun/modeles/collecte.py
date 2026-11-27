@@ -148,6 +148,8 @@ class ChangementExtrait(Base):
     passage_debut: Mapped[int] = mapped_column(Integer)
     passage_fin: Mapped[int] = mapped_column(Integer)
     passage_texte: Mapped[str] = mapped_column(Text)
+    # Méthode « legi » : {document_id, debut, fin, texte} dans la version précédente.
+    passage_precedent: Mapped[dict | None] = mapped_column(JSON)
     clauses_application: Mapped[list[str]] = mapped_column(JSON, default=list)
     methode: Mapped[Methode] = mapped_column(_enum(Methode, "methode_extraction"))
     coordination: Mapped[bool] = mapped_column(Boolean, default=False)

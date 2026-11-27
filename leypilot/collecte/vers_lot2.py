@@ -11,6 +11,8 @@ lot 2, pour le fil rouge et tant que ``entree.py`` n'est pas fusionné dans ``ma
 Règles :
 - seuls les changements rattachés à un dispositif (CIR, CII, JEI) partent vers le lot 2 ;
   les autres restent dans la table ``changement`` (indicateurs, file « à revoir ») ;
+- une ligne non reconnue reste chez le lot 1 jusqu'à sa lecture ; une lecture du LLM de
+  secours part avec ``a_revoir`` vrai ;
 - ``texte_source`` est ``document.texte`` (normalisé) : son SHA-256 côté lot 2 est égal
   à ``document.empreinte_texte`` ;
 - les clauses d'application partent telles quelles dans ``conditions``.
@@ -20,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from leypilot.collecte.schemas import Changement, Statut
+from leypilot.collecte.schemas import Changement, Methode, Operation, Statut
 from leypilot.collecte.sources.base import DocumentBrut, Source, TypeTexte
 
 SOURCES_LOT2 = {
@@ -81,8 +83,11 @@ def document_filtre(document_id: int, document: DocumentBrut) -> dict[str, Any] 
 
 
 def changement_detecte(changement_id: int, changement: Changement) -> dict[str, Any] | None:
-    """Format ``ChangementDetecte`` du lot 2 ; ``None`` si aucun dispositif n'est touché."""
+    """Format ``ChangementDetecte`` du lot 2 ; ``None`` si aucun dispositif n'est touché, ou
+    si la ligne n'a pas pu être lue (elle attend d'abord un humain dans la file « à revoir »)."""
     if changement.dispositif not in {"CIR", "CII", "JEI"}:
+        return None
+    if changement.operation == Operation.NON_RECONNUE and changement.methode != Methode.LLM:
         return None
     return {
         "identifiant": changement_id,
