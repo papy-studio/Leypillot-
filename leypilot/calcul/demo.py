@@ -15,9 +15,14 @@ def main() -> None:
     mesure = MesureChiffrable(**donnees["mesure"])
     resultat = simuler_mesure(client["client_id"], client["entrees"], mesure, client["exercice"])
     print(f"Client : {client['nom']}  |  statut : {resultat.statut}")
-    for etape in resultat.trace:
-        print(f"  - {etape.libelle} : {etape.valeur:,.2f}")
-    print(f"Écart : {resultat.ecart:,.2f} EUR")
+    for titre, trace in (
+        ("Loi actuelle", resultat.trace_loi_actuelle),
+        ("Avec la réforme", resultat.trace_reforme),
+    ):
+        print(titre)
+        for etape in trace:
+            print(f"  - {etape.libelle} : {etape.valeur:,}")
+    print(f"Écart : {resultat.ecart:,} EUR")
 
 
 if __name__ == "__main__":

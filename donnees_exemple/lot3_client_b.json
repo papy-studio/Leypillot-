@@ -13,14 +13,15 @@
     "mesure_id": 1,
     "dispositif": "CII",
     "parametre": "taux",
-    "ancienne_valeur": 0.30,
-    "nouvelle_valeur": 0.20,
+    "ancienne_valeur": "0.30",
+    "nouvelle_valeur": "0.20",
     "date_effet": "2026-01-01",
+    "date_certaine": true,
     "citation": "le taux : « 30 % » est remplacé par le taux : « 20 % »"
   },
   "resultat_attendu": {
-    "aide_loi_actuelle": 120000,
-    "aide_reforme": 80000,
-    "ecart": 40000
+    "aide_loi_actuelle": "120000.00",
+    "aide_reforme": "80000.00",
+    "ecart": "40000.00"
   }
 }
