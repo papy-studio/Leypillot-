@@ -1,0 +1,24 @@
+# Paramètres du crédit d'impôt innovation (CII) · lot 3 (P3)
+# Chaque valeur a une date d'effet et une source.
+# ATTENTION : valeurs d'exemple du fil rouge. Vérifie chacune sur Légifrance
+# avant de t'en servir pour de vrai.
+# Les noms (taux, plafond_depenses, seuil_effectif_pme) sont ceux que P2 doit
+# mettre dans le champ « parametre » d'une mesure.
+
+taux:
+  description: Taux du crédit d'impôt innovation (PME)
+  reference: https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006303754  # à vérifier
+  valeurs:
+    "2023-01-01": 0.30
+
+plafond_depenses:
+  description: Plafond annuel des dépenses d'innovation retenues (euros)
+  reference: https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006303754  # à vérifier
+  valeurs:
+    "2013-01-01": 400000
+
+seuil_effectif_pme:
+  description: Effectif à partir duquel l'entreprise n'est plus une PME (le CII est réservé aux PME)
+  reference: https://eur-lex.europa.eu/eli/reg/2014/651/oj  # annexe I, à vérifier avec l'expert
+  valeurs:
+    "2013-01-01": 250

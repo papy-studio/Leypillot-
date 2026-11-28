@@ -1,0 +1,27 @@
+{
+  "description": "Fil rouge client B, lot 3 : données FICTIVES pour le moteur de calcul.",
+  "client": {
+    "client_id": 2,
+    "nom": "Client B (fictif)",
+    "exercice": 2026,
+    "entrees": {
+      "effectif": 40,
+      "depenses_innovation": 400000
+    }
+  },
+  "mesure": {
+    "mesure_id": 1,
+    "dispositif": "CII",
+    "parametre": "taux",
+    "ancienne_valeur": "0.30",
+    "nouvelle_valeur": "0.20",
+    "date_effet": "2026-01-01",
+    "date_certaine": true,
+    "citation": "le taux : « 30 % » est remplacé par le taux : « 20 % »"
+  },
+  "resultat_attendu": {
+    "aide_loi_actuelle": "120000.00",
+    "aide_reforme": "80000.00",
+    "ecart": "40000.00"
+  }
+}
