@@ -1,8 +1,9 @@
 """Clients LLM : l'interface commune et ses implémentations.
 
-Le fournisseur (Claude, Mistral…) n'est pas encore choisi. ``ClientFournisseur``
-contient la requête à écrire. En attendant :
-
+- ``ClientFournisseur`` appelle le fournisseur réglé dans le .env (Groq pour le
+  prototype). Il parle le format « chat completions » d'OpenAI, que Groq,
+  Mistral et Vercel AI Gateway acceptent : changer de fournisseur revient à
+  changer ``LLM_FOURNISSEUR``, ``LLM_MODELE`` et ``LLM_CLE_API`` ;
 - ``ClientNonConfigure`` est utilisé quand aucun fournisseur n'est réglé ;
   le lot 2 bascule alors sur ses gabarits ;
 - ``ClientFactice`` sert aux tests et aux autres lots, sans clé API.
@@ -12,10 +13,30 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
+
+import httpx
 
 from leypilot.commun.config import Reglages
 from leypilot.commun.llm.erreurs import ErreurLLM, LLMNonConfigure
+
+# Adresse de l'API « chat completions » de chaque fournisseur accepté.
+URL_FOURNISSEURS: dict[str, str] = {
+    "groq": "https://api.groq.com/openai/v1/chat/completions",
+    "mistral": "https://api.mistral.ai/v1/chat/completions",
+    "vercel": "https://ai-gateway.vercel.sh/v1/chat/completions",
+}
+
+# Modèles qui raisonnent avant de répondre (gpt-oss) : le raisonnement consomme le
+# budget de jetons. On le limite, sinon la réponse peut revenir vide.
+_MODELES_RAISONNEMENT = ("gpt-oss",)
+
+_MESSAGES_HTTP = {
+    401: "clé API refusée",
+    403: "accès refusé (abonnement ou moyen de paiement manquant ?)",
+    404: "modèle inconnu ou non disponible pour cette clé",
+    429: "quota dépassé, réessayer plus tard",
+}
 
 
 @dataclass(frozen=True)
@@ -49,29 +70,98 @@ class ClientNonConfigure:
 
 
 class ClientFournisseur:
-    """Client du fournisseur retenu par l'équipe.
+    """Client du fournisseur réglé dans le .env (format « chat completions »).
 
-    La requête n'est pas écrite : le choix du fournisseur est en attente.
-    Tant qu'elle ne l'est pas, ``completer`` lève ``LLMNonConfigure`` et la
-    chaîne continue sans LLM.
+    Toute erreur (réseau, délai, clé, quota, réponse vide ou tronquée) devient une
+    ``ErreurLLM`` : l'appelant bascule alors sur son traitement sans LLM.
     """
 
-    def __init__(self, fournisseur: str, modele: str, cle_api: str, delai_secondes: float = 60.0):
-        self.fournisseur = fournisseur
+    def __init__(
+        self,
+        fournisseur: str,
+        modele: str,
+        cle_api: str,
+        delai_secondes: float = 60.0,
+        transport: httpx.BaseTransport | None = None,  # pour les tests
+    ):
+        self.fournisseur = fournisseur.strip().lower()
         self.modele = modele
         self.cle_api = cle_api
         self.delai_secondes = delai_secondes
+        self.transport = transport
+
+    def __repr__(self) -> str:  # n'affiche jamais la clé
+        return f"ClientFournisseur({self.fournisseur!r}, {self.modele!r})"
+
+    def corps(self, requete: RequeteLLM) -> dict[str, Any]:
+        corps: dict[str, Any] = {
+            "model": self.modele,
+            "messages": [
+                {"role": "system", "content": requete.systeme},
+                {"role": "user", "content": requete.message},
+            ],
+            "max_tokens": requete.max_jetons,
+            "temperature": 0,  # même texte, même réponse : résultats reproductibles
+        }
+        if any(nom in self.modele for nom in _MODELES_RAISONNEMENT):
+            corps["reasoning_effort"] = "low"
+        return corps
 
     def completer(self, requete: RequeteLLM) -> ReponseLLM:
-        # À ÉCRIRE quand l'équipe aura choisi le fournisseur :
-        #   1. envoyer requete.systeme (consigne) et requete.message au modèle self.modele,
-        #      avec self.cle_api et un délai maximal de self.delai_secondes ;
-        #   2. limiter la réponse à requete.max_jetons ;
-        #   3. renvoyer ReponseLLM(texte, modele, jetons_entree, jetons_sortie) ;
-        #   4. traduire toute erreur du fournisseur (réseau, quota, refus) en ErreurLLM.
-        raise LLMNonConfigure(
-            f"Requête au fournisseur {self.fournisseur!r} pas encore écrite "
-            "(voir leypilot/commun/llm/client.py)."
+        url = URL_FOURNISSEURS.get(self.fournisseur)
+        if url is None:
+            connus = ", ".join(sorted(URL_FOURNISSEURS))
+            raise LLMNonConfigure(
+                f"Fournisseur LLM inconnu : {self.fournisseur!r} (acceptés : {connus})."
+            )
+        if not self.modele or not self.cle_api:
+            raise LLMNonConfigure("LLM_MODELE ou LLM_CLE_API manquant dans le .env.")
+
+        try:
+            with httpx.Client(timeout=self.delai_secondes, transport=self.transport) as http:
+                reponse = http.post(
+                    url,
+                    json=self.corps(requete),
+                    headers={"Authorization": f"Bearer {self.cle_api}"},
+                )
+        except httpx.TimeoutException as erreur:
+            raise ErreurLLM(
+                f"{self.fournisseur} : pas de réponse en {self.delai_secondes:g} s."
+            ) from erreur
+        except httpx.HTTPError as erreur:
+            raise ErreurLLM(f"{self.fournisseur} : erreur réseau ({erreur}).") from erreur
+
+        if reponse.status_code != 200:
+            raise ErreurLLM(self._message_erreur(reponse))
+        return self._lire(reponse)
+
+    def _message_erreur(self, reponse: httpx.Response) -> str:
+        code = reponse.status_code
+        motif = _MESSAGES_HTTP.get(code, "erreur du fournisseur")
+        try:
+            detail = reponse.json().get("error", {}).get("message", "")
+        except (ValueError, AttributeError):
+            detail = ""
+        return f"{self.fournisseur} : HTTP {code}, {motif}" + (f" ({detail})" if detail else "")
+
+    def _lire(self, reponse: httpx.Response) -> ReponseLLM:
+        try:
+            donnees = reponse.json()
+            choix = donnees["choices"][0]
+            texte = choix["message"].get("content") or ""
+            usage = donnees.get("usage") or {}
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError) as erreur:
+            raise ErreurLLM(f"{self.fournisseur} : réponse illisible.") from erreur
+
+        if choix.get("finish_reason") == "length":
+            raise ErreurLLM(f"{self.fournisseur} : réponse tronquée (budget de jetons atteint).")
+        if not texte.strip():
+            raise ErreurLLM(f"{self.fournisseur} : réponse vide.")
+        return ReponseLLM(
+            texte=texte,
+            modele=donnees.get("model", self.modele),
+            jetons_entree=int(usage.get("prompt_tokens", 0)),
+            jetons_sortie=int(usage.get("completion_tokens", 0)),
         )
 
 

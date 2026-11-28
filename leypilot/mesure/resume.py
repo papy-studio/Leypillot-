@@ -1,7 +1,10 @@
 """S3 · Résumer : un consultant comprend le changement sans ouvrir le texte.
 
-Chaîne : contexte → citation (vérifiée mot pour mot) → rédaction → filtre
-anti-montant → drapeau « à vérifier ».
+Chaîne : contexte → citation (vérifiée mot pour mot) → rédaction → contrôles
+sans LLM (montants, dates) → drapeau « à vérifier ».
+
+Un résumé refusé par les contrôles est régénéré une fois, en donnant au LLM les
+erreurs trouvées ; s'il est encore refusé, le gabarit le remplace.
 
 Deux rédacteurs partagent la même interface :
 - ``RedacteurGabarit`` : déterministe, sans LLM (utilisé par défaut) ;
@@ -14,6 +17,7 @@ marqué « en attente » : il sera relancé plus tard (répartition, couche LLM)
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -21,8 +25,9 @@ from pydantic import BaseModel, Field
 
 from leypilot.commun.llm import VERSIONS_ACTIVES, ErreurLLM, ServiceLLM, montants_non_justifies
 from leypilot.mesure.contexte import ContexteVide, SourceContexte, construire_contexte
+from leypilot.mesure.controle_dates import erreurs_de_date
 from leypilot.mesure.dates import DateVigueur
-from leypilot.mesure.drapeaux import MOTIF_CITATION, MOTIF_MONTANT, detecter_doutes
+from leypilot.mesure.drapeaux import MOTIF_CITATION, MOTIF_DATE, MOTIF_MONTANT, detecter_doutes
 from leypilot.mesure.schemas import Changement, Evenement, NatureDate
 from leypilot.mesure.textes import citation_verifiee, date_en_francais
 
@@ -64,7 +69,7 @@ class Redacteur(Protocol):
         contexte: str,
         date_vigueur: DateVigueur | None,
         *,
-        regeneration: bool = False,
+        remarques: Sequence[str] = (),
     ) -> str: ...
 
 
@@ -82,7 +87,7 @@ class RedacteurGabarit:
         contexte: str,
         date_vigueur: DateVigueur | None,
         *,
-        regeneration: bool = False,
+        remarques: Sequence[str] = (),
     ) -> str:
         quoi = f"« {changement.parametre} »"
         ancienne, nouvelle = changement.ancienne_valeur, changement.nouvelle_valeur
@@ -140,16 +145,28 @@ class RedacteurLLM:
         contexte: str,
         date_vigueur: DateVigueur | None,
         *,
-        regeneration: bool = False,
+        remarques: Sequence[str] = (),
     ) -> str:
         valeurs = {
             "citation": citation,
             "contexte": contexte,
             "etape": LIBELLES_ETAPE[changement.evenement],
             "date_application": phrase_date(date_vigueur),
+            # La température est à 0 : sans remarque, une régénération redonnerait la
+            # même réponse. Les remarques changent aussi la clé du cache.
+            "remarques": "; ".join(remarques) if remarques else "aucune",
             **self._champs(changement),
         }
-        return self.service.generer("s3_resume", ResumeLLM, valeurs, forcer=regeneration).resume
+        return self.service.generer("s3_resume", ResumeLLM, valeurs).resume
+
+
+def controler(texte: str, citation: str, date_vigueur: DateVigueur | None) -> list[str]:
+    """Contrôles sans LLM du résumé : montants puis dates. Liste vide = résumé accepté."""
+    erreurs = [
+        f"le montant « {m.brut} » ne figure pas dans la citation"
+        for m in montants_non_justifies(texte, citation)
+    ]
+    return erreurs + erreurs_de_date(texte, citation, date_vigueur)
 
 
 @dataclass
@@ -207,17 +224,21 @@ class ResumeurS3:
         citation = self._citation(redacteur, changement, contexte, motifs)
 
         texte = redacteur.rediger(changement, citation, contexte, date_vigueur)
-        if montants_non_justifies(texte, citation):
-            journal.warning("S3 : montant hors citation, régénération (%s).", redacteur.methode)
-            texte = redacteur.rediger(
-                changement, citation, contexte, date_vigueur, regeneration=True
+        if erreurs := controler(texte, citation, date_vigueur):
+            journal.warning(
+                "S3 : résumé refusé (%s), régénération : %s", redacteur.methode, erreurs
             )
-        if montants_non_justifies(texte, citation) and redacteur is not self.secours:
-            journal.warning("S3 : montant hors citation après régénération, gabarit.")
+            texte = redacteur.rediger(
+                changement, citation, contexte, date_vigueur, remarques=erreurs
+            )
+        if (erreurs := controler(texte, citation, date_vigueur)) and redacteur is not self.secours:
+            journal.warning("S3 : résumé encore refusé, gabarit : %s", erreurs)
             redacteur = self.secours
             texte = redacteur.rediger(changement, citation, contexte, date_vigueur)
         if montants_non_justifies(texte, citation):
             motifs.append(MOTIF_MONTANT)
+        if erreurs_de_date(texte, citation, date_vigueur):
+            motifs.append(MOTIF_DATE)
 
         return ResumeProduit(texte, citation, redacteur.methode, redacteur.version, motifs)
 

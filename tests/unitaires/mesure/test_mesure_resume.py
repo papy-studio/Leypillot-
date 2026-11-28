@@ -6,6 +6,7 @@ from leypilot.mesure.contexte import ContexteMemoire, construire_contexte
 from leypilot.mesure.dates import DateVigueur
 from leypilot.mesure.drapeaux import (
     MOTIF_CITATION,
+    MOTIF_DATE,
     MOTIF_DECRET,
     MOTIF_EXTRACTION,
     MOTIF_MONTANT,
@@ -59,7 +60,7 @@ def test_gabarit_sans_date_et_date_estimee(fabrique):
 
 
 def test_resume_par_llm(fabrique):
-    llm, client = service("Le taux du CII baisse de 30 % à 20 % pour les dépenses de 2026.")
+    llm, client = service("Le taux du CII baisse de 30 % à 20 % à compter du 1er janvier 2026.")
     produit = creer_resumeur(llm).resumer(fabrique(), DATE_CERTAINE)
     assert produit.methode == "llm"
     assert produit.texte.startswith("Le taux du CII baisse")
@@ -68,14 +69,16 @@ def test_resume_par_llm(fabrique):
 
 
 def test_aucune_donnee_client_dans_les_prompts(fabrique):
-    llm, client = service("Résumé.")
+    llm, client = service("Résumé applicable au 1er janvier 2026.")
     creer_resumeur(llm).resumer(fabrique(), DATE_CERTAINE)
     for appel in client.appels:
         assert "client" not in appel.message.lower()
 
 
 def test_citation_du_llm_non_verbatim_remplacee_par_celle_de_s2(fabrique):
-    llm, _ = service("Résumé.", citation="le taux passe de 30 à 20 %")
+    llm, _ = service(
+        "Résumé applicable au 1er janvier 2026.", citation="le taux passe de 30 à 20 %"
+    )
     produit = creer_resumeur(llm).resumer(fabrique(), DATE_CERTAINE)
     assert produit.citation == fabrique().passage_cite
     assert not produit.a_verifier
@@ -84,12 +87,14 @@ def test_citation_du_llm_non_verbatim_remplacee_par_celle_de_s2(fabrique):
 def test_montant_invente_regenere_une_fois(fabrique):
     llm, client = service(
         "Le client type perd 40 000 € par an.",
-        "Le taux du CII passe de 30 % à 20 %.",
+        "Le taux du CII passe de 30 % à 20 % au 1er janvier 2026.",
     )
     produit = creer_resumeur(llm).resumer(fabrique(), DATE_CERTAINE)
     assert produit.methode == "llm"
     assert "€" not in produit.texte
     assert [a.tache for a in client.appels] == ["s3_citation", "s3_resume", "s3_resume"]
+    # La régénération dit au LLM ce qui a été refusé.
+    assert "40 000 €" in client.appels[2].message
 
 
 def test_montant_invente_deux_fois_donne_le_gabarit(fabrique):
@@ -185,3 +190,32 @@ def test_contexte_retrouve_par_identifiant(fabrique):
     assert "Texte de l'article 244 quater B" in contexte
     assert "doctrine du CII" in contexte
     assert construire_contexte(ContexteMemoire(), fabrique()) == "Aucun contexte disponible."
+
+
+# --- Contrôle des dates du résumé ----------------------------------------------------
+
+
+def test_application_rattachee_a_la_publication_regeneree_avec_remarque(fabrique):
+    # Réponse réelle de gpt-oss-120b avec le prompt v1.
+    llm, client = service(
+        "Le taux du CII passe de 30 % à 20 %. Cette modification s'applique à compter du "
+        "1er janvier 2026. Elle entre en vigueur dès la publication du texte au Journal officiel.",
+        "Le taux du CII passe de 30 % à 20 % à compter du 1er janvier 2026.",
+    )
+    produit = creer_resumeur(llm).resumer(fabrique(), DATE_CERTAINE)
+    assert produit.methode == "llm"
+    assert produit.texte.endswith("à compter du 1er janvier 2026.")
+    assert MOTIF_DATE not in produit.motifs
+    remarque = client.appels[2].message
+    assert "étape de la procédure" in remarque and "dès la publication" in remarque
+
+
+def test_date_fausse_deux_fois_donne_le_gabarit(fabrique):
+    llm, _ = service(
+        "Le taux du CII passe à 20 % au 1er juillet 2026.",
+        "Le taux du CII passe à 20 % dès le vote de la loi.",
+    )
+    produit = creer_resumeur(llm).resumer(fabrique(), DATE_CERTAINE)
+    assert produit.methode == "gabarit"
+    assert produit.texte.endswith("Applicable à compter du 1er janvier 2026.")
+    assert MOTIF_DATE not in produit.motifs  # le gabarit, lui, est correct

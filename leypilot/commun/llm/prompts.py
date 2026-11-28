@@ -20,7 +20,7 @@ DOSSIER_PROMPTS = Path(__file__).parent / "prompts"
 
 VERSIONS_ACTIVES: dict[str, str] = {
     "s3_citation": "v1",
-    "s3_resume": "v1",
+    "s3_resume": "v2",
     "a4_date": "v1",
 }
 

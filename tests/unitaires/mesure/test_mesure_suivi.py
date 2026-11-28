@@ -248,7 +248,9 @@ def test_resume_en_attente_puis_relance(session, fabrique):
             "s3_citation": [
                 '{"citation": "le taux : « 30 % » est remplacé par le taux : « 20 % »"}'
             ],
-            "s3_resume": ['{"resume": "Le taux du CII baisse de 30 % à 20 %."}'],
+            "s3_resume": [
+                '{"resume": "Le taux du CII baisse de 30 % à 20 % au 1er janvier 2026."}'
+            ],
         }
     )
     retabli = SuiviMesures(session, resumeur=creer_resumeur(ServiceLLM(client)))
@@ -256,7 +258,7 @@ def test_resume_en_attente_puis_relance(session, fabrique):
 
     etat = vue(session, resultat.mesure_id)
     assert not etat.resume_en_attente
-    assert etat.resume == "Le taux du CII baisse de 30 % à 20 %."
+    assert etat.resume == "Le taux du CII baisse de 30 % à 20 % au 1er janvier 2026."
     assert session.query(ResumeMesure).filter_by(en_attente=True).count() == 0
     assert retabli.relancer_resumes_en_attente() == []
 

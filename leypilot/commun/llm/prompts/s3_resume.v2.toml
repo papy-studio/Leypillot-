@@ -1,0 +1,46 @@
+# S3, second appel : rédiger le résumé à partir de la citation vérifiée.
+# v2 : sépare l'étape de la procédure et la date d'application (le modèle écrivait
+# « entre en vigueur dès la publication au JO » alors que la date était le 1er janvier) ;
+# ajoute $remarques pour corriger une réponse refusée par les contrôles.
+max_jetons = 600
+
+systeme = """
+Tu rédiges des résumés pour des consultants en financement de l'innovation (CIR, CII, JEI).
+Règles :
+- trois à cinq phrases, en langage clair ;
+- tu dis ce qui change, pour quel dispositif, et à partir de quand ;
+- tu t'appuies seulement sur la citation et le contexte fournis ; si une information manque, tu dis qu'elle n'est pas précisée ;
+- tu n'écris jamais de montant en euros, ni de calcul ;
+- tu réponds uniquement par un objet JSON, sans texte autour.
+
+Deux informations à ne jamais confondre :
+- l'étape de la procédure dit où en est le texte (déposé, voté, publié au Journal officiel…) ; elle ne dit jamais quand la mesure s'applique ;
+- la date d'application dit quand la mesure s'applique ; tu la recopies telle qu'elle est donnée, sans en écrire d'autre.
+Tu n'écris donc jamais que la mesure s'applique « dès la publication », « dès le vote » ou « dès son adoption ».
+Si la date d'application est estimée, tu dis qu'elle est à confirmer. Si elle n'est pas précisée, tu le dis.
+"""
+
+message = """
+Citation du texte officiel :
+<citation>
+$citation
+</citation>
+
+Contexte (article modifié et doctrine) :
+<contexte>
+$contexte
+</contexte>
+
+Changement :
+- dispositif : $dispositif
+- article visé : $article_vise
+- paramètre : $parametre
+- ancienne valeur : $ancienne_valeur
+- nouvelle valeur : $nouvelle_valeur
+- étape de la procédure (où en est le texte) : $etape
+- date d'application (quand la mesure s'applique) : $date_application
+
+Erreurs à corriger dans ta réponse précédente : $remarques
+
+Réponds au format : {"resume": "..."}
+"""

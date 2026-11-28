@@ -20,6 +20,7 @@ MOTIF_EXTRACTION = "extraction S2 marquée « à revoir »"
 MOTIF_TERMES = "termes non définis dans le texte"
 MOTIF_CITATION = "citation introuvable mot pour mot dans le texte"
 MOTIF_MONTANT = "montant absent de la citation"
+MOTIF_DATE = "date du résumé incohérente avec la date d'application"
 
 _RENVOI = re.compile(
     r"\b(?:fix|pr[ée]cis|d[ée]fini|d[ée]termin)\w*\s+par\s+(?:un\s+)?(?:d[ée]cret|arr[êe]t[ée])"

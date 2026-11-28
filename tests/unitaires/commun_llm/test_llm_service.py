@@ -110,10 +110,10 @@ def test_client_non_configure_par_defaut():
         ServiceLLM(client).generer("s3_citation", Citation, VALEURS_CITATION)
 
 
-def test_requete_du_fournisseur_pas_encore_ecrite():
+def test_fournisseur_inconnu_bascule_sans_llm():
     client = creer_client(Reglages(llm_fournisseur="a-choisir", llm_modele="m", llm_cle_api="k"))
     assert isinstance(client, ClientFournisseur)
-    with pytest.raises(LLMNonConfigure, match="pas encore écrite"):
+    with pytest.raises(LLMNonConfigure, match="inconnu"):
         ServiceLLM(client).generer("s3_citation", Citation, VALEURS_CITATION)
 
 
